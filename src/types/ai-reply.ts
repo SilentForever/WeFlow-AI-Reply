@@ -1,0 +1,280 @@
+export type ServiceStatus = 'stopped' | 'running' | 'paused' | 'error'
+
+export type ModelType = 'ollama' | 'openai' | 'claude' | 'gemini' | 'custom'
+
+export interface OllamaConfig {
+  baseUrl: string
+  model: string
+  temperature: number
+  maxTokens: number
+}
+
+export interface OpenAICompatibleConfig {
+  apiKey: string
+  baseUrl: string
+  model: string
+  temperature: number
+  maxTokens: number
+}
+
+export interface CustomAPIConfig {
+  url: string
+  headers: Record<string, string>
+  bodyTemplate: Record<string, unknown>
+  responsePath: string
+  method: 'POST' | 'GET'
+}
+
+export interface ModelConfig {
+  id: string
+  name: string
+  type: ModelType
+  enabled: boolean
+  config: OllamaConfig | OpenAICompatibleConfig | CustomAPIConfig
+}
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+  timestamp?: number
+}
+
+export interface GenerateOptions {
+  temperature?: number
+  maxTokens?: number
+  stream?: boolean
+}
+
+export interface GenerateResult {
+  content: string
+  model: string
+  usage?: {
+    promptTokens: number
+    completionTokens: number
+    totalTokens: number
+  }
+}
+
+export interface TestResult {
+  success: boolean
+  message: string
+  latencyMs?: number
+}
+
+export interface ModelInfo {
+  id: string
+  name: string
+  type: ModelType
+  isLocal: boolean
+}
+
+export interface Relationship {
+  contactId: string
+  contactName: string
+  relationType: string
+  notes?: string
+}
+
+export interface SelfMemory {
+  background: string
+  experiences: string[]
+  values: string[]
+  preferences: Record<string, unknown>
+  relationships: Relationship[]
+}
+
+export interface PersonaIdentity {
+  role: string
+  age?: number
+  occupation?: string
+  mbti?: string
+  tags: string[]
+}
+
+export interface SpeechStyle {
+  tone: string
+  vocabulary: string[]
+  sentencePatterns: string[]
+  emojiUsage: string
+}
+
+export interface EmotionalPatterns {
+  triggers: Record<string, string>
+  copingMechanisms: string[]
+}
+
+export interface Persona {
+  identity: PersonaIdentity
+  speechStyle: SpeechStyle
+  emotionalPatterns: EmotionalPatterns
+  behavioralRules: string[]
+}
+
+export interface ReplyStrategy {
+  responseDelay: { min: number; max: number }
+  typingSpeed: number
+  maxReplyLength: number
+  breakOnPunctuation: boolean
+}
+
+export interface Skill {
+  id: string
+  name: string
+  version: string
+  author?: string
+  description: string
+  avatar?: string
+  selfMemory: SelfMemory
+  persona: Persona
+  systemPromptTemplate: string
+  replyStrategy: ReplyStrategy
+  isBuiltin?: boolean
+  createdAt?: number
+  updatedAt?: number
+}
+
+export type ListenMode = 'all' | 'specific' | 'whitelist' | 'blacklist'
+
+export interface TriggerRules {
+  enabled: boolean
+  listenMode: ListenMode
+  targetContacts: string[]
+  whitelist: string[]
+  blacklist: string[]
+  keywords: {
+    include: string[]
+    exclude: string[]
+    regex?: string
+  }
+  triggerOnAt: boolean
+  triggerOnAtAll: boolean
+  timeRules: {
+    enabled: boolean
+    allowedHours: [number, number]
+    timezone: string
+  }
+  rateLimit: {
+    enabled: boolean
+    maxRepliesPerMinute: number
+    cooldownSeconds: number
+  }
+}
+
+export interface WeChatMessage {
+  msgId: string
+  contactId: string
+  contactName: string
+  content: string
+  isGroup: boolean
+  senderId?: string
+  senderName?: string
+  timestamp: number
+  type: number
+}
+
+export interface ReplyLog {
+  id: string
+  timestamp: number
+  contactId: string
+  contactName: string
+  receivedMessage: string
+  generatedReply: string
+  skillId: string
+  skillName: string
+  modelId: string
+  modelName: string
+  latencyMs: number
+  success: boolean
+  errorMessage?: string
+}
+
+export interface AIReplyConfig {
+  enabled: boolean
+  activeModelId: string
+  activeSkillId: string
+  triggerRules: TriggerRules
+  models: ModelConfig[]
+  skills: Skill[]
+}
+
+export interface DailyStats {
+  receivedCount: number
+  repliedCount: number
+  activeContacts: number
+  errorCount: number
+}
+
+export interface ContactSkillMapping {
+  contactId: string
+  skillId: string
+  enabled: boolean
+}
+
+export const DEFAULT_TRIGGER_RULES: TriggerRules = {
+  enabled: false,
+  listenMode: 'specific',
+  targetContacts: [],
+  whitelist: [],
+  blacklist: [],
+  keywords: {
+    include: [],
+    exclude: []
+  },
+  triggerOnAt: true,
+  triggerOnAtAll: false,
+  timeRules: {
+    enabled: false,
+    allowedHours: [8, 22],
+    timezone: 'Asia/Shanghai'
+  },
+  rateLimit: {
+    enabled: true,
+    maxRepliesPerMinute: 10,
+    cooldownSeconds: 5
+  }
+}
+
+export const DEFAULT_REPLY_STRATEGY: ReplyStrategy = {
+  responseDelay: { min: 500, max: 2000 },
+  typingSpeed: 50,
+  maxReplyLength: 500,
+  breakOnPunctuation: true
+}
+
+export const DEFAULT_SKILL: Skill = {
+  id: 'default-assistant',
+  name: '默认助手',
+  version: '1.0.0',
+  description: '通用 AI 助手，适用于大多数对话场景',
+  selfMemory: {
+    background: '你是一个友好的 AI 助手',
+    experiences: [],
+    values: ['乐于助人', '诚实', '尊重'],
+    preferences: {},
+    relationships: []
+  },
+  persona: {
+    identity: {
+      role: 'AI 助手',
+      tags: ['友好', '专业', '简洁']
+    },
+    speechStyle: {
+      tone: '友好、专业、简洁',
+      vocabulary: [],
+      sentencePatterns: [],
+      emojiUsage: '适度使用'
+    },
+    emotionalPatterns: {
+      triggers: {},
+      copingMechanisms: []
+    },
+    behavioralRules: [
+      '回复要简洁明了',
+      '保持友好态度',
+      '不确定时坦诚说明'
+    ]
+  },
+  systemPromptTemplate: '',
+  replyStrategy: DEFAULT_REPLY_STRATEGY,
+  isBuiltin: true
+}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { Home, MessageSquare, BarChart3, FileText, Settings, Download, Aperture, UserCircle, Lock, LockOpen, ChevronUp, FolderClosed, Footprints, Users, ArchiveRestore, Sparkles } from 'lucide-react'
+import { Home, MessageSquare, BarChart3, FileText, Settings, Download, Aperture, UserCircle, Lock, LockOpen, ChevronUp, FolderClosed, Footprints, Users, ArchiveRestore, Sparkles, Bot } from 'lucide-react'
 import { useAppStore } from '../stores/appStore'
 import * as configService from '../services/config'
 import { onExportSessionStatus, requestExportSessionStatus } from '../services/exportBridge'
@@ -428,6 +428,15 @@ function Sidebar({ collapsed }: SidebarProps) {
           >
             <span className="nav-icon"><ArchiveRestore size={20} /></span>
             <span className="nav-label">数据库备份</span>
+          </NavLink>
+
+          <NavLink
+            to="/ai-reply"
+            className={`nav-item ${isActive('/ai-reply') ? 'active' : ''}`}
+            title={collapsed ? 'AI 回复' : undefined}
+          >
+            <span className="nav-icon"><Bot size={20} /></span>
+            <span className="nav-label">AI 回复</span>
           </NavLink>
 
 

@@ -1860,6 +1860,117 @@ function registerIpcHandlers() {
     }
   })
 
+  // AI 自动回复 IPC 处理器
+  const { AIReplyService } = await import('./services/ai-reply/AIReplyService')
+  const aiReplyService = new AIReplyService(join(app.getPath('userData'), 'ai-reply', 'skills'))
+
+  const aiReplySender = (channel: string, ...args: any[]) => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(channel, ...args)
+    }
+  }
+
+  aiReplyService.on('statusChanged', (status: string) => {
+    aiReplySender('aiReply:statusChanged', status)
+  })
+  aiReplyService.on('replySent', (log: any) => {
+    aiReplySender('aiReply:replySent', log)
+  })
+  aiReplyService.on('replyError', (error: any) => {
+    aiReplySender('aiReply:replyError', error)
+  })
+  aiReplyService.on('messageReceived', (message: any) => {
+    aiReplySender('aiReply:messageReceived', message)
+  })
+
+  ipcMain.handle('aiReply:start', async () => {
+    try { await aiReplyService.start(); return { success: true } }
+    catch (e: any) { return { success: false, error: e.message } }
+  })
+  ipcMain.handle('aiReply:pause', async () => { aiReplyService.pause(); return { success: true } })
+  ipcMain.handle('aiReply:resume', async () => { aiReplyService.resume(); return { success: true } })
+  ipcMain.handle('aiReply:stop', async () => { aiReplyService.stop(); return { success: true } })
+  ipcMain.handle('aiReply:getStatus', async () => aiReplyService.getStatus())
+  ipcMain.handle('aiReply:getConfig', async () => {
+    const cfg = configService?.get('aiReply' as any) || {}
+    return cfg
+  })
+  ipcMain.handle('aiReply:setConfig', async (_, config: any) => {
+    configService?.set('aiReply' as any, config)
+    return { success: true }
+  })
+  ipcMain.handle('aiReply:addModel', async (_, modelConfig: any) => {
+    aiReplyService.setModelAdapter(modelConfig)
+    return { success: true }
+  })
+  ipcMain.handle('aiReply:removeModel', async (_, modelId: string) => {
+    aiReplyService.removeModelAdapter(modelId)
+    return { success: true }
+  })
+  ipcMain.handle('aiReply:setActiveModel', async (_, modelId: string) => {
+    aiReplyService.setActiveModel(modelId)
+    return { success: true }
+  })
+  ipcMain.handle('aiReply:testModel', async (_, modelId: string) => {
+    return aiReplyService.testModelConnection(modelId)
+  })
+  ipcMain.handle('aiReply:getModels', async () => {
+    return configService?.get('aiReplyModels' as any) || []
+  })
+  ipcMain.handle('aiReply:addSkill', async (_, skill: any) => {
+    aiReplyService.getSkillEngine().addSkill(skill)
+    return { success: true }
+  })
+  ipcMain.handle('aiReply:removeSkill', async (_, skillId: string) => {
+    return { success: aiReplyService.getSkillEngine().removeSkill(skillId) }
+  })
+  ipcMain.handle('aiReply:setActiveSkill', async (_, skillId: string) => {
+    aiReplyService.setActiveSkill(skillId)
+    return { success: true }
+  })
+  ipcMain.handle('aiReply:getSkills', async () => {
+    return aiReplyService.getSkillEngine().getAllSkills()
+  })
+  ipcMain.handle('aiReply:reloadSkills', async () => {
+    return aiReplyService.getSkillEngine().loadAllSkills()
+  })
+  ipcMain.handle('aiReply:generateTestReply', async (_, skillId: string, testMessage: string) => {
+    return aiReplyService.generateTestReply(skillId, testMessage)
+  })
+  ipcMain.handle('aiReply:setTriggerRules', async (_, rules: any) => {
+    aiReplyService.setTriggerRules(rules)
+    return { success: true }
+  })
+  ipcMain.handle('aiReply:getTriggerRules', async () => {
+    return configService?.get('aiReplyTriggerRules' as any) || {}
+  })
+  ipcMain.handle('aiReply:setContactSkillMapping', async (_, contactId: string, skillId: string) => {
+    aiReplyService.setContactSkillMapping(contactId, skillId)
+    return { success: true }
+  })
+  ipcMain.handle('aiReply:removeContactSkillMapping', async (_, contactId: string) => {
+    aiReplyService.removeContactSkillMapping(contactId)
+    return { success: true }
+  })
+  ipcMain.handle('aiReply:getContactSkillMappings', async () => {
+    return aiReplyService.getContactSkillMappings()
+  })
+  ipcMain.handle('aiReply:getReplyLogs', async (_, limit?: number) => {
+    return aiReplyService.getReplyLogs(limit)
+  })
+  ipcMain.handle('aiReply:clearReplyLogs', async () => {
+    aiReplyService.clearReplyLogs()
+    return { success: true }
+  })
+  ipcMain.handle('aiReply:getDailyStats', async () => {
+    return aiReplyService.getDailyStats()
+  })
+  ipcMain.handle('aiReply:clearContext', async (_, contactId: string) => {
+    aiReplyService.getContextManager().clearHistory(contactId)
+    return { success: true }
+  })
+
   ipcMain.handle('config:clear', async () => {
     if (isLaunchAtStartupSupported() && getSystemLaunchAtStartup()) {
       const result = setSystemLaunchAtStartup(false)

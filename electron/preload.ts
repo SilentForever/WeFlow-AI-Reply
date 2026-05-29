@@ -601,5 +601,55 @@ contextBridge.exposeInMainWorld('electronAPI', {
   social: {
     saveWeiboCookie: (rawInput: string) => ipcRenderer.invoke('social:saveWeiboCookie', rawInput),
     validateWeiboUid: (uid: string) => ipcRenderer.invoke('social:validateWeiboUid', uid)
+  },
+
+  aiReply: {
+    start: () => ipcRenderer.invoke('aiReply:start'),
+    pause: () => ipcRenderer.invoke('aiReply:pause'),
+    resume: () => ipcRenderer.invoke('aiReply:resume'),
+    stop: () => ipcRenderer.invoke('aiReply:stop'),
+    getStatus: () => ipcRenderer.invoke('aiReply:getStatus'),
+    getConfig: () => ipcRenderer.invoke('aiReply:getConfig'),
+    setConfig: (config: any) => ipcRenderer.invoke('aiReply:setConfig', config),
+    addModel: (modelConfig: any) => ipcRenderer.invoke('aiReply:addModel', modelConfig),
+    removeModel: (modelId: string) => ipcRenderer.invoke('aiReply:removeModel', modelId),
+    setActiveModel: (modelId: string) => ipcRenderer.invoke('aiReply:setActiveModel', modelId),
+    testModel: (modelId: string) => ipcRenderer.invoke('aiReply:testModel', modelId),
+    getModels: () => ipcRenderer.invoke('aiReply:getModels'),
+    addSkill: (skill: any) => ipcRenderer.invoke('aiReply:addSkill', skill),
+    removeSkill: (skillId: string) => ipcRenderer.invoke('aiReply:removeSkill', skillId),
+    setActiveSkill: (skillId: string) => ipcRenderer.invoke('aiReply:setActiveSkill', skillId),
+    getSkills: () => ipcRenderer.invoke('aiReply:getSkills'),
+    reloadSkills: () => ipcRenderer.invoke('aiReply:reloadSkills'),
+    generateTestReply: (skillId: string, testMessage: string) => ipcRenderer.invoke('aiReply:generateTestReply', skillId, testMessage),
+    setTriggerRules: (rules: any) => ipcRenderer.invoke('aiReply:setTriggerRules', rules),
+    getTriggerRules: () => ipcRenderer.invoke('aiReply:getTriggerRules'),
+    setContactSkillMapping: (contactId: string, skillId: string) => ipcRenderer.invoke('aiReply:setContactSkillMapping', contactId, skillId),
+    removeContactSkillMapping: (contactId: string) => ipcRenderer.invoke('aiReply:removeContactSkillMapping', contactId),
+    getContactSkillMappings: () => ipcRenderer.invoke('aiReply:getContactSkillMappings'),
+    getReplyLogs: (limit?: number) => ipcRenderer.invoke('aiReply:getReplyLogs', limit),
+    clearReplyLogs: () => ipcRenderer.invoke('aiReply:clearReplyLogs'),
+    getDailyStats: () => ipcRenderer.invoke('aiReply:getDailyStats'),
+    clearContext: (contactId: string) => ipcRenderer.invoke('aiReply:clearContext', contactId),
+    onStatusChanged: (callback: (status: string) => void) => {
+      const listener = (_: any, status: string) => callback(status)
+      ipcRenderer.on('aiReply:statusChanged', listener)
+      return () => ipcRenderer.removeListener('aiReply:statusChanged', listener)
+    },
+    onReplySent: (callback: (log: any) => void) => {
+      const listener = (_: any, log: any) => callback(log)
+      ipcRenderer.on('aiReply:replySent', listener)
+      return () => ipcRenderer.removeListener('aiReply:replySent', listener)
+    },
+    onReplyError: (callback: (error: any) => void) => {
+      const listener = (_: any, error: any) => callback(error)
+      ipcRenderer.on('aiReply:replyError', listener)
+      return () => ipcRenderer.removeListener('aiReply:replyError', listener)
+    },
+    onMessageReceived: (callback: (message: any) => void) => {
+      const listener = (_: any, message: any) => callback(message)
+      ipcRenderer.on('aiReply:messageReceived', listener)
+      return () => ipcRenderer.removeListener('aiReply:messageReceived', listener)
+    }
   }
 })

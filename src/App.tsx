@@ -29,6 +29,7 @@ import NotificationWindow from './pages/NotificationWindow'
 import AccountManagementPage from './pages/AccountManagementPage'
 import BackupPage from './pages/BackupPage'
 import InsightInboxPage from './pages/InsightInboxPage'
+import AIReplyPage from './pages/AIReplyPage'
 
 import { useAppStore } from './stores/appStore'
 import { themes, useThemeStore, type ThemeId, type ThemeMode } from './stores/themeStore'
@@ -722,6 +723,7 @@ function App() {
               <Route path="/contacts" element={<ContactsPage />} />
               <Route path="/resources" element={<ResourcesPage />} />
               <Route path="/backup" element={<BackupPage />} />
+              <Route path="/ai-reply" element={<AIReplyPage />} />
               <Route path="/chat-history/:sessionId/:messageId" element={<ChatHistoryPage />} />
               <Route path="/chat-history-inline/:payloadId" element={<ChatHistoryPage />} />
             </Routes>

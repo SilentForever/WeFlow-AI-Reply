@@ -1321,6 +1321,39 @@ export interface ElectronAPI {
       mentionGroups?: Array<{ displayName?: string; session_id?: string; count?: number }>
     }) => Promise<{ success: boolean; message: string; insight?: string }>
   }
+  aiReply: {
+    start: () => Promise<{ success: boolean; error?: string }>
+    pause: () => Promise<{ success: boolean }>
+    resume: () => Promise<{ success: boolean }>
+    stop: () => Promise<{ success: boolean }>
+    getStatus: () => Promise<string>
+    getConfig: () => Promise<Record<string, unknown>>
+    setConfig: (config: unknown) => Promise<{ success: boolean }>
+    addModel: (modelConfig: unknown) => Promise<{ success: boolean }>
+    removeModel: (modelId: string) => Promise<{ success: boolean }>
+    setActiveModel: (modelId: string) => Promise<{ success: boolean }>
+    testModel: (modelId: string) => Promise<{ success: boolean; message: string; latencyMs?: number }>
+    getModels: () => Promise<unknown[]>
+    addSkill: (skill: unknown) => Promise<{ success: boolean }>
+    removeSkill: (skillId: string) => Promise<{ success: boolean }>
+    setActiveSkill: (skillId: string) => Promise<{ success: boolean }>
+    getSkills: () => Promise<unknown[]>
+    reloadSkills: () => Promise<unknown[]>
+    generateTestReply: (skillId: string, testMessage: string) => Promise<string>
+    setTriggerRules: (rules: unknown) => Promise<{ success: boolean }>
+    getTriggerRules: () => Promise<Record<string, unknown>>
+    setContactSkillMapping: (contactId: string, skillId: string) => Promise<{ success: boolean }>
+    removeContactSkillMapping: (contactId: string) => Promise<{ success: boolean }>
+    getContactSkillMappings: () => Promise<unknown[]>
+    getReplyLogs: (limit?: number) => Promise<unknown[]>
+    clearReplyLogs: () => Promise<{ success: boolean }>
+    getDailyStats: () => Promise<{ receivedCount: number; repliedCount: number; activeContacts: number; errorCount: number }>
+    clearContext: (contactId: string) => Promise<{ success: boolean }>
+    onStatusChanged: (callback: (status: string) => void) => () => void
+    onReplySent: (callback: (log: unknown) => void) => () => void
+    onReplyError: (callback: (error: unknown) => void) => () => void
+    onMessageReceived: (callback: (message: unknown) => void) => () => void
+  }
 }
 
 export interface ExportOptions {
