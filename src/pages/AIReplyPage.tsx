@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAIReplyStore } from '../stores/aiReplyStore'
-import type { ModelConfig, ModelType, Skill, TriggerRules, OllamaConfig, OpenAICompatibleConfig, ModelPreset } from '../types/ai-reply'
+import type { ModelConfig, ModelType, Skill, TriggerRules, OllamaConfig, OpenAICompatibleConfig } from '../types/ai-reply'
 import { DEFAULT_TRIGGER_RULES } from '../types/ai-reply'
 import {
   Bot, Play, Pause, Square, Plus, Trash2, Settings, TestTube,
@@ -14,7 +14,6 @@ import TagInput from '../components/AIReply/TagInput'
 import TimeRangeSlider from '../components/AIReply/TimeRangeSlider'
 import ContactPicker from '../components/AIReply/ContactPicker'
 import ModelSelector from '../components/AIReply/ModelSelector'
-import ModelPresetCards from '../components/AIReply/ModelPresetCards'
 import SkillImportDialog from '../components/AIReply/SkillImportDialog'
 import DistillWizard from '../components/AIReply/DistillWizard'
 import SkillDetailEditor from '../components/AIReply/SkillDetailEditor'
@@ -210,22 +209,14 @@ function ModelsTab() {
   const store = useAIReplyStore()
   const [showAddModel, setShowAddModel] = useState(false)
 
-  const handlePresetSelect = (preset: ModelPreset) => {
-    setShowAddModel(true)
-  }
-
   return (
     <div className="models-tab">
       <div className="section-header">
         <h3>模型配置</h3>
-        <button className="btn btn-primary" onClick={() => setShowAddModel(true)}>
-          <Plus size={16} /> 添加模型
+        <button className="btn btn-primary" onClick={() => setShowAddModel(!showAddModel)}>
+          {showAddModel ? <XCircle size={16} /> : <Plus size={16} />}
+          {showAddModel ? '取消' : '添加模型'}
         </button>
-      </div>
-
-      <div className="preset-section">
-        <h4>快捷预设</h4>
-        <ModelPresetCards onSelect={handlePresetSelect} />
       </div>
 
       {showAddModel && (
@@ -323,13 +314,6 @@ function AddModelForm({ onClose }: { onClose: () => void }) {
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(2048)
 
-  const handlePresetSelect = (preset: ModelPreset) => {
-    setType(preset.type)
-    setBaseUrl(preset.baseUrl)
-    setModel(preset.defaultModel)
-    setName(preset.name)
-  }
-
   const handleSubmit = async () => {
     if (!name || !model) return
 
@@ -354,11 +338,17 @@ function AddModelForm({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="add-model-form">
-      <h4>添加模型</h4>
-      <ModelPresetCards onSelect={handlePresetSelect} />
       <div className="form-group">
         <label>模型类型</label>
-        <select value={type} onChange={e => setType(e.target.value as ModelType)}>
+        <select value={type} onChange={e => {
+          const t = e.target.value as ModelType
+          setType(t)
+          if (t === 'ollama') setBaseUrl('http://localhost:11434')
+          else if (t === 'openai') setBaseUrl('https://api.openai.com/v1')
+          else if (t === 'claude') setBaseUrl('https://api.anthropic.com/v1')
+          else if (t === 'gemini') setBaseUrl('https://generativelanguage.googleapis.com/v1beta')
+          else setBaseUrl('')
+        }}>
           <option value="ollama">Ollama (本地)</option>
           <option value="openai">OpenAI 兼容</option>
           <option value="claude">Claude</option>

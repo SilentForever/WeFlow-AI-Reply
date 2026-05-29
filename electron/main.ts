@@ -2069,7 +2069,19 @@ function registerIpcHandlers() {
   })
   ipcMain.handle('aiReply:searchContacts', async (_, keyword: string, limit?: number) => {
     try {
-      return await aiReplyService.searchContacts(keyword, limit)
+      const result = await chatService.getContacts({ lite: true })
+      if (!result.success || !result.contacts) return []
+      const kw = keyword.toLowerCase()
+      const filtered = result.contacts.filter((c: any) => {
+        const name = (c.displayName || c.nickname || c.remark || c.username || '').toLowerCase()
+        return name.includes(kw)
+      })
+      return filtered.slice(0, limit || 50).map((c: any) => ({
+        id: c.username,
+        name: c.remark || c.displayName || c.nickname || c.username,
+        avatar: c.avatarUrl || '',
+        isGroup: c.type === 'group'
+      }))
     } catch (e: any) {
       return []
     }

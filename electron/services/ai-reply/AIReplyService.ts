@@ -322,14 +322,15 @@ export class AIReplyService extends EventEmitter {
       this.sseConnection.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data)
+          const isGroup = data.sessionType === 'group' || String(data.sessionId || '').includes('@chatroom')
           const message: WeChatMessage = {
-            msgId: data.msgId || data.id || `msg_${Date.now()}`,
-            contactId: data.username || data.contactId || data.talker || '',
-            contactName: data.nickname || data.contactName || data.talkerName || '',
+            msgId: data.rawid || data.msgId || data.id || `msg_${Date.now()}`,
+            contactId: data.sessionId || data.username || data.contactId || data.talker || '',
+            contactName: data.sourceName || data.nickname || data.contactName || data.talkerName || '',
             content: data.content || data.text || '',
-            isGroup: data.isGroup || data.chatroom || false,
-            senderId: data.senderId || data.actualSender || '',
-            senderName: data.senderName || data.actualSenderName || '',
+            isGroup,
+            senderId: data.senderUsername || data.senderId || data.actualSender || '',
+            senderName: data.sourceName || data.senderName || data.actualSenderName || '',
             timestamp: data.timestamp || data.createTime || Date.now(),
             type: data.type || 1
           }
@@ -449,7 +450,7 @@ export class AIReplyService extends EventEmitter {
   async searchContacts(keyword: string, limit: number = 20): Promise<any[]> {
     const { baseUrl, accessToken } = this.getWeFlowAPIConfig()
     const params = new URLSearchParams({ keyword, limit: String(limit) })
-    const url = `${baseUrl}/api/v1/contacts/search?${params.toString()}`
+    const url = `${baseUrl}/api/v1/contacts?${params.toString()}`
 
     try {
       const res = await fetch(url, {

@@ -19,6 +19,7 @@ export default function ContactPicker({ selectedIds, onChange }: ContactPickerPr
   const [results, setResults] = useState<ContactItem[]>([])
   const [isOpen, setIsOpen] = useState(false)
   const [searching, setSearching] = useState(false)
+  const [selectedContacts, setSelectedContacts] = useState<Map<string, ContactItem>>(new Map())
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -31,6 +32,44 @@ export default function ContactPicker({ selectedIds, onChange }: ContactPickerPr
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
+  useEffect(() => {
+    if (selectedIds.length === 0) {
+      setSelectedContacts(new Map())
+      return
+    }
+    const missingIds = selectedIds.filter(id => !selectedContacts.has(id))
+    if (missingIds.length > 0) {
+      loadContactDetails(missingIds)
+    }
+  }, [selectedIds])
+
+  const loadContactDetails = async (ids: string[]) => {
+    try {
+      const allContacts: ContactItem[] = []
+      for (const id of ids) {
+        if (selectedContacts.has(id)) continue
+        try {
+          const contact = await window.electronAPI?.chat?.getContact(id)
+          if (contact) {
+            allContacts.push({
+              id: contact.username || id,
+              name: contact.remark || contact.nickName || contact.alias || contact.username || id,
+              avatar: contact.smallHeadUrl || contact.bigHeadUrl || '',
+              isGroup: contact.localType === 2 || contact.localType === 3
+            })
+          }
+        } catch {}
+      }
+      if (allContacts.length > 0) {
+        setSelectedContacts(prev => {
+          const next = new Map(prev)
+          allContacts.forEach(c => next.set(c.id, c))
+          return next
+        })
+      }
+    } catch {}
+  }
+
   const handleSearch = async (value: string) => {
     setKeyword(value)
     if (!value.trim()) {
@@ -40,23 +79,39 @@ export default function ContactPicker({ selectedIds, onChange }: ContactPickerPr
     setSearching(true)
     try {
       const contacts = await window.electronAPI?.aiReply?.searchContacts(value.trim()) || []
-      setResults(contacts.map((c: any) => ({
+      const mapped = contacts.map((c: any) => ({
         id: c.id || c.contactId || c.username,
         name: c.name || c.displayName || c.nickname || c.contactName,
         avatar: c.avatar || c.avatarUrl,
         isGroup: c.isGroup || c.type === 'group' || false
-      })))
+      }))
+      setResults(mapped)
+      mapped.forEach((c: ContactItem) => {
+        if (selectedIds.includes(c.id)) {
+          setSelectedContacts(prev => {
+            if (prev.has(c.id)) return prev
+            const next = new Map(prev)
+            next.set(c.id, c)
+            return next
+          })
+        }
+      })
     } catch {
       setResults([])
     }
     setSearching(false)
   }
 
-  const toggleContact = (id: string) => {
-    if (selectedIds.includes(id)) {
-      onChange(selectedIds.filter(i => i !== id))
+  const toggleContact = (contact: ContactItem) => {
+    setSelectedContacts(prev => {
+      const next = new Map(prev)
+      next.set(contact.id, contact)
+      return next
+    })
+    if (selectedIds.includes(contact.id)) {
+      onChange(selectedIds.filter(i => i !== contact.id))
     } else {
-      onChange([...selectedIds, id])
+      onChange([...selectedIds, contact.id])
     }
   }
 
@@ -72,10 +127,17 @@ export default function ContactPicker({ selectedIds, onChange }: ContactPickerPr
       {selectedIds.length > 0 && (
         <div className="selected-tags">
           {selectedIds.map(id => {
-            const contact = results.find(c => c.id === id)
+            const contact = selectedContacts.get(id)
             return (
               <span key={id} className="selected-tag">
-                {contact?.name || id}
+                <span className="tag-avatar">
+                  {contact?.avatar
+                    ? <img src={contact.avatar} alt="" />
+                    : <span className="tag-avatar-letter">{(contact?.name || id)[0]}</span>
+                  }
+                </span>
+                <span className="tag-name">{contact?.name || id}</span>
+                {contact?.isGroup && <Users size={10} className="tag-group-icon" />}
                 <button className="tag-remove" onClick={() => removeSelected(id)}>
                   <X size={12} />
                 </button>
@@ -106,7 +168,7 @@ export default function ContactPicker({ selectedIds, onChange }: ContactPickerPr
                 <div
                   key={c.id}
                   className={`contact-item ${selectedIds.includes(c.id) ? 'selected' : ''}`}
-                  onClick={() => toggleContact(c.id)}
+                  onClick={() => toggleContact(c)}
                 >
                   <div className="contact-avatar">
                     {c.avatar ? <img src={c.avatar} alt="" /> : <span>{c.name[0]}</span>}
@@ -124,7 +186,7 @@ export default function ContactPicker({ selectedIds, onChange }: ContactPickerPr
                 <div
                   key={c.id}
                   className={`contact-item ${selectedIds.includes(c.id) ? 'selected' : ''}`}
-                  onClick={() => toggleContact(c.id)}
+                  onClick={() => toggleContact(c)}
                 >
                   <div className="contact-avatar">
                     {c.avatar ? <img src={c.avatar} alt="" /> : <span>{c.name[0]}</span>}

@@ -115,11 +115,11 @@ export class DistillService extends EventEmitter {
   }
 
   async fetchChatRecords(contactId: string, limit: number, startDate?: string, endDate?: string): Promise<ChatRecord[]> {
-    const params = new URLSearchParams({ contactId, limit: String(limit) })
-    if (startDate) params.set('startDate', startDate)
-    if (endDate) params.set('endDate', endDate)
+    const params = new URLSearchParams({ talker: contactId, limit: String(limit) })
+    if (startDate) params.set('start', startDate)
+    if (endDate) params.set('end', endDate)
 
-    const url = `${this.weflowBaseUrl}/api/v1/chat/records?${params.toString()}`
+    const url = `${this.weflowBaseUrl}/api/v1/messages?${params.toString()}`
     const res = await fetch(url, {
       headers: { 'Authorization': `Bearer ${this.weflowAccessToken}` }
     })
@@ -129,12 +129,12 @@ export class DistillService extends EventEmitter {
     }
 
     const data: any = await res.json()
-    return (data.records || data.data || []).map((r: any) => ({
-      id: String(r.id || r.msgId || ''),
-      content: String(r.content || r.text || ''),
+    return (data.messages || data.records || data.data || []).map((r: any) => ({
+      id: String(r.localId || r.serverId || r.id || r.msgId || ''),
+      content: String(r.parsedContent || r.content || r.text || ''),
       isSend: Boolean(r.isSend ?? r.is_send ?? r.isMe ?? false),
-      timestamp: Number(r.timestamp || r.createTime || 0),
-      type: Number(r.type ?? 1)
+      timestamp: Number(r.createTime || r.timestamp || 0),
+      type: Number(r.localType ?? r.type ?? 1)
     }))
   }
 
