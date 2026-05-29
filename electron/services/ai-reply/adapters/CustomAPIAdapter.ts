@@ -1,5 +1,5 @@
 import { BaseAdapter } from './BaseAdapter'
-import type { ChatMessage, GenerateOptions, GenerateResult, TestResult, CustomAPIConfig } from '../../../src/types/ai-reply'
+import type { ChatMessage, GenerateOptions, GenerateResult, TestResult, CustomAPIConfig } from '../../../../src/types/ai-reply'
 
 export class CustomAPIAdapter extends BaseAdapter {
   private getConfig(): CustomAPIConfig {
@@ -69,6 +69,10 @@ export class CustomAPIAdapter extends BaseAdapter {
   validateConfig(): boolean {
     const cfg = this.getConfig()
     return !!cfg.url
+  }
+
+  async fetchAvailableModels(): Promise<{ id: string; name: string; isLocal: boolean }[]> {
+    return []
   }
 
   private buildRequestBody(

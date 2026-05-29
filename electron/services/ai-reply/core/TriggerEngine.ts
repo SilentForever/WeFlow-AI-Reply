@@ -1,4 +1,4 @@
-import type { TriggerRules, WeChatMessage } from '../../src/types/ai-reply'
+import type { TriggerRules, WeChatMessage } from '../../../../src/types/ai-reply'
 
 interface RateLimitEntry {
   timestamps: number[]

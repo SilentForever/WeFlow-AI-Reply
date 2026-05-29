@@ -8,7 +8,7 @@ import type {
   OllamaConfig,
   OpenAICompatibleConfig,
   CustomAPIConfig
-} from '../../src/types/ai-reply'
+} from '../../../../src/types/ai-reply'
 
 export abstract class BaseAdapter {
   protected config: ModelConfig
@@ -19,6 +19,7 @@ export abstract class BaseAdapter {
 
   abstract generate(messages: ChatMessage[], options?: GenerateOptions): Promise<GenerateResult>
   abstract testConnection(): Promise<TestResult>
+  abstract fetchAvailableModels(): Promise<{ id: string; name: string; isLocal: boolean }[]>
 
   validateConfig(): boolean {
     return !!this.config.id && !!this.config.name && !!this.config.type

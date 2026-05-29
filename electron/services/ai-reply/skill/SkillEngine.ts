@@ -1,8 +1,9 @@
-import { readFile, readdir, stat, mkdir } from 'fs/promises'
+import { readFile, readdir, mkdir, cp, rm } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
-import type { Skill, SelfMemory, Persona, PersonaIdentity, SpeechStyle, EmotionalPatterns, ReplyStrategy } from '../../src/types/ai-reply'
-import { DEFAULT_REPLY_STRATEGY } from '../../src/types/ai-reply'
+import { exec } from 'child_process'
+import type { Skill, SelfMemory, Persona, PersonaIdentity, SpeechStyle, EmotionalPatterns, ReplyStrategy } from '../../../../src/types/ai-reply'
+import { DEFAULT_REPLY_STRATEGY } from '../../../../src/types/ai-reply'
 
 export class SkillEngine {
   private skills: Map<string, Skill> = new Map()
@@ -322,5 +323,65 @@ export class SkillEngine {
       .split('\n')
       .map(line => line.replace(/^[-*]\s*/, '').trim())
       .filter(line => line.length > 0)
+  }
+
+  async importSkillFromDirectory(sourceDir: string): Promise<Skill> {
+    const skill = await this.loadSkillFromDirectory(sourceDir)
+    if (!skill) {
+      throw new Error(`No valid skill found in ${sourceDir}`)
+    }
+
+    const destDir = join(this.skillsDir, skill.id)
+    await mkdir(destDir, { recursive: true })
+    await cp(sourceDir, destDir, { recursive: true })
+
+    skill.updatedAt = Date.now()
+    this.skills.set(skill.id, skill)
+    return skill
+  }
+
+  async importSkillFromZip(zipPath: string): Promise<Skill> {
+    const tmpDir = join(this.skillsDir, `.tmp_import_${Date.now()}`)
+    await mkdir(tmpDir, { recursive: true })
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        exec(`unzip -o "${zipPath}" -d "${tmpDir}"`, (error) => {
+          if (error) reject(error)
+          else resolve()
+        })
+      })
+
+      const entries = await readdir(tmpDir, { withFileTypes: true })
+      const skillDir = entries.find(e => e.isDirectory())?.name
+
+      if (!skillDir) {
+        throw new Error('No directory found in zip file')
+      }
+
+      const sourceDir = join(tmpDir, skillDir)
+      const skill = await this.importSkillFromDirectory(sourceDir)
+      return skill
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true })
+    }
+  }
+
+  async importSkillFromGit(repoUrl: string): Promise<Skill> {
+    const tmpDir = join(this.skillsDir, `.tmp_git_${Date.now()}`)
+
+    try {
+      await new Promise<void>((resolve, reject) => {
+        exec(`git clone --depth 1 "${repoUrl}" "${tmpDir}"`, (error) => {
+          if (error) reject(error)
+          else resolve()
+        })
+      })
+
+      const skill = await this.importSkillFromDirectory(tmpDir)
+      return skill
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true })
+    }
   }
 }

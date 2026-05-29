@@ -1349,10 +1349,28 @@ export interface ElectronAPI {
     clearReplyLogs: () => Promise<{ success: boolean }>
     getDailyStats: () => Promise<{ receivedCount: number; repliedCount: number; activeContacts: number; errorCount: number }>
     clearContext: (contactId: string) => Promise<{ success: boolean }>
+    fetchAvailableModels: (type: string, baseUrl: string, apiKey?: string) => Promise<unknown[]>
+    importSkillFromDirectory: (dir: string) => Promise<unknown>
+    importSkillFromZip: (path: string) => Promise<unknown>
+    importSkillFromGit: (url: string) => Promise<unknown>
+    createSkill: (skill: unknown) => Promise<unknown>
+    updateSkill: (id: string, skill: unknown) => Promise<unknown>
+    exportSkill: (id: string) => Promise<string>
+    getSkillDetail: (id: string) => Promise<unknown>
+    startDistill: (params: unknown) => Promise<string>
+    cancelDistill: (taskId: string) => Promise<void>
+    getDistillProgress: (taskId: string) => Promise<unknown>
+    getDistillResult: (taskId: string) => Promise<unknown>
+    saveDistillSkill: (taskId: string, override?: unknown) => Promise<unknown>
+    fetchChatRecords: (contactId: string, limit: number, startDate?: number, endDate?: number) => Promise<unknown[]>
+    estimateDistillCost: (contactId: string, messageLimit: number, depth: number) => Promise<{ tokenEstimate: number; feeEstimate: number }>
+    getWeFlowAPIConfig: () => Promise<{ baseUrl: string; accessToken: string }>
+    searchContacts: (keyword: string, limit?: number) => Promise<unknown[]>
     onStatusChanged: (callback: (status: string) => void) => () => void
     onReplySent: (callback: (log: unknown) => void) => () => void
     onReplyError: (callback: (error: unknown) => void) => () => void
     onMessageReceived: (callback: (message: unknown) => void) => () => void
+    onDistillProgress: (callback: (progress: unknown) => void) => () => void
   }
 }
 

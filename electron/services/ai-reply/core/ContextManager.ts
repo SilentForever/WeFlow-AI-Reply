@@ -1,4 +1,4 @@
-import type { ChatMessage, WeChatMessage } from '../../src/types/ai-reply'
+import type { ChatMessage, WeChatMessage } from '../../../../src/types/ai-reply'
 
 interface ContextEntry {
   messages: ChatMessage[]

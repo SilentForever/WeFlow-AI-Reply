@@ -1,13 +1,24 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useAIReplyStore } from '../stores/aiReplyStore'
-import type { ModelConfig, ModelType, Skill, TriggerRules, OllamaConfig, OpenAICompatibleConfig } from '../types/ai-reply'
+import type { ModelConfig, ModelType, Skill, TriggerRules, OllamaConfig, OpenAICompatibleConfig, ModelPreset } from '../types/ai-reply'
 import { DEFAULT_TRIGGER_RULES } from '../types/ai-reply'
 import {
   Bot, Play, Pause, Square, Plus, Trash2, Settings, TestTube,
   MessageSquare, Zap, Users, Clock, Shield, ChevronRight,
   CheckCircle2, XCircle, Loader2, RefreshCw, Send, Sparkles,
-  Brain, UserCircle, Activity
+  Brain, UserCircle, Activity, Search, Eye, Edit3, Download,
+  FolderDown, FlaskConical
 } from 'lucide-react'
+import ToggleSwitch from '../components/AIReply/ToggleSwitch'
+import TagInput from '../components/AIReply/TagInput'
+import TimeRangeSlider from '../components/AIReply/TimeRangeSlider'
+import ContactPicker from '../components/AIReply/ContactPicker'
+import ModelSelector from '../components/AIReply/ModelSelector'
+import ModelPresetCards from '../components/AIReply/ModelPresetCards'
+import SkillImportDialog from '../components/AIReply/SkillImportDialog'
+import DistillWizard from '../components/AIReply/DistillWizard'
+import SkillDetailEditor from '../components/AIReply/SkillDetailEditor'
+import LogDetailDialog from '../components/AIReply/LogDetailDialog'
 import './AIReplyPage.scss'
 
 type TabId = 'dashboard' | 'models' | 'skills' | 'triggers' | 'logs'
@@ -142,7 +153,7 @@ function DashboardTab() {
           <XCircle size={20} />
           <div className="stat-info">
             <span className="stat-value">{dailyStats.errorCount}</span>
-            <span className="stat-label">错误</span>
+            <span className="stat-label">错误数</span>
           </div>
         </div>
       </div>
@@ -166,7 +177,7 @@ function DashboardTab() {
         <div className="recent-logs">
           <h3>最近回复</h3>
           {store.replyLogs.slice(-5).reverse().map(log => (
-            <div key={log.id} className={`log-item ${log.success ? '' : 'log-error'}`}>
+            <div key={log.id} className={`log-item ${log.success ? '' : 'log-error'}`} onClick={() => store.setSelectedLogDetail(log)}>
               <div className="log-header">
                 <span className="log-contact">{log.contactName}</span>
                 <span className="log-time">{new Date(log.timestamp).toLocaleTimeString()}</span>
@@ -180,6 +191,17 @@ function DashboardTab() {
           ))}
         </div>
       )}
+
+      <div className="quick-actions">
+        <button className="btn btn-primary" onClick={() => store.start()} disabled={store.status === 'running'}>
+          <Play size={14} /> 启动服务
+        </button>
+        <button className="btn" onClick={() => store.fetchDailyStats()}>
+          <RefreshCw size={14} /> 刷新统计
+        </button>
+      </div>
+
+      <LogDetailDialog log={store.selectedLogDetail} onClose={() => store.setSelectedLogDetail(null)} />
     </div>
   )
 }
@@ -188,6 +210,10 @@ function ModelsTab() {
   const store = useAIReplyStore()
   const [showAddModel, setShowAddModel] = useState(false)
 
+  const handlePresetSelect = (preset: ModelPreset) => {
+    setShowAddModel(true)
+  }
+
   return (
     <div className="models-tab">
       <div className="section-header">
@@ -195,6 +221,11 @@ function ModelsTab() {
         <button className="btn btn-primary" onClick={() => setShowAddModel(true)}>
           <Plus size={16} /> 添加模型
         </button>
+      </div>
+
+      <div className="preset-section">
+        <h4>快捷预设</h4>
+        <ModelPresetCards onSelect={handlePresetSelect} />
       </div>
 
       {showAddModel && (
@@ -292,6 +323,13 @@ function AddModelForm({ onClose }: { onClose: () => void }) {
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(2048)
 
+  const handlePresetSelect = (preset: ModelPreset) => {
+    setType(preset.type)
+    setBaseUrl(preset.baseUrl)
+    setModel(preset.defaultModel)
+    setName(preset.name)
+  }
+
   const handleSubmit = async () => {
     if (!name || !model) return
 
@@ -317,6 +355,7 @@ function AddModelForm({ onClose }: { onClose: () => void }) {
   return (
     <div className="add-model-form">
       <h4>添加模型</h4>
+      <ModelPresetCards onSelect={handlePresetSelect} />
       <div className="form-group">
         <label>模型类型</label>
         <select value={type} onChange={e => setType(e.target.value as ModelType)}>
@@ -344,8 +383,13 @@ function AddModelForm({ onClose }: { onClose: () => void }) {
       )}
       <div className="form-group">
         <label>模型名称</label>
-        <input value={model} onChange={e => setModel(e.target.value)}
-          placeholder={type === 'ollama' ? 'deepseek-r1:7b' : 'gpt-4o'} />
+        <ModelSelector
+          type={type}
+          baseUrl={baseUrl}
+          apiKey={apiKey}
+          value={model}
+          onChange={setModel}
+        />
       </div>
       <div className="form-row">
         <div className="form-group">
@@ -369,27 +413,69 @@ function AddModelForm({ onClose }: { onClose: () => void }) {
 
 function SkillsTab() {
   const store = useAIReplyStore()
+  const [showImportDialog, setShowImportDialog] = useState(false)
+  const [showDistillWizard, setShowDistillWizard] = useState(false)
+  const [showDetailEditor, setShowDetailEditor] = useState(false)
   const [testMessage, setTestMessage] = useState('')
-  const [testSkillId, setTestSkillId] = useState('')
 
-  const handleTest = async (skillId: string) => {
+  const handleImported = (skill: Skill) => {
+    store.fetchSkills()
+  }
+
+  const handleDistillCompleted = (skill: Skill) => {
+    store.fetchSkills()
+  }
+
+  const handleEditSkill = (skill: Skill) => {
+    store.setEditingSkill(skill)
+    setShowDetailEditor(true)
+  }
+
+  const handleSaveSkill = (skill: Skill) => {
+    store.setEditingSkill(null)
+    setShowDetailEditor(false)
+    store.fetchSkills()
+  }
+
+  const handleTest = async () => {
     if (!testMessage) return
-    setTestSkillId(skillId)
-    await store.generateTestReply(skillId, testMessage)
+    await store.generateTestReply(store.activeSkillId, testMessage)
+  }
+
+  if (showDetailEditor && store.editingSkill) {
+    return (
+      <SkillDetailEditor
+        skill={store.editingSkill}
+        onSave={handleSaveSkill}
+        onCancel={() => { store.setEditingSkill(null); setShowDetailEditor(false) }}
+      />
+    )
   }
 
   return (
     <div className="skills-tab">
       <div className="section-header">
         <h3>角色管理</h3>
-        <button className="btn" onClick={() => store.reloadSkills()}>
-          <RefreshCw size={16} /> 刷新
-        </button>
+        <div className="skills-actions">
+          <button className="btn btn-primary" onClick={() => setShowDistillWizard(true)}>
+            <FlaskConical size={16} /> 蒸馏好友
+          </button>
+          <button className="btn" onClick={() => setShowImportDialog(true)}>
+            <Download size={16} /> 导入
+          </button>
+          <button className="btn" onClick={() => store.reloadSkills()}>
+            <RefreshCw size={16} /> 刷新
+          </button>
+        </div>
       </div>
 
       <div className="skill-list">
         {store.skills.map(skill => (
-          <div key={skill.id} className={`skill-card ${skill.id === store.activeSkillId ? 'active' : ''}`}>
+          <div
+            key={skill.id}
+            className={`skill-card ${skill.id === store.activeSkillId ? 'active' : ''}`}
+            onClick={() => handleEditSkill(skill)}
+          >
             <div className="skill-info">
               <div className="skill-header">
                 <span className="skill-name">{skill.name}</span>
@@ -404,12 +490,15 @@ function SkillsTab() {
                 ))}
               </div>
             </div>
-            <div className="skill-actions">
+            <div className="skill-actions" onClick={e => e.stopPropagation()}>
               {skill.id !== store.activeSkillId && (
                 <button className="btn btn-sm" onClick={() => store.setActiveSkill(skill.id)}>
                   <CheckCircle2 size={14} /> 启用
                 </button>
               )}
+              <button className="btn btn-sm" onClick={() => handleEditSkill(skill)}>
+                <Edit3 size={14} /> 编辑
+              </button>
               {!skill.isBuiltin && (
                 <button className="btn btn-sm btn-danger" onClick={() => store.removeSkill(skill.id)}>
                   <Trash2 size={14} />
@@ -428,7 +517,7 @@ function SkillsTab() {
             onChange={e => setTestMessage(e.target.value)}
             placeholder="输入测试消息..."
           />
-          <button className="btn btn-primary" onClick={() => handleTest(store.activeSkillId)}
+          <button className="btn btn-primary" onClick={handleTest}
             disabled={!testMessage || store.isLoading}>
             {store.isLoading ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
             发送
@@ -441,6 +530,17 @@ function SkillsTab() {
           </div>
         )}
       </div>
+
+      <SkillImportDialog
+        open={showImportDialog}
+        onClose={() => setShowImportDialog(false)}
+        onImported={handleImported}
+      />
+      <DistillWizard
+        open={showDistillWizard}
+        onClose={() => setShowDistillWizard(false)}
+        onCompleted={handleDistillCompleted}
+      />
     </div>
   )
 }
@@ -470,96 +570,145 @@ function TriggersTab() {
         </button>
       </div>
 
-      <div className="form-group">
-        <label className="switch-label">
-          <input type="checkbox" checked={rules.enabled}
-            onChange={e => updateRule('enabled', e.target.checked)} />
-          <span>启用自动回复</span>
-        </label>
-      </div>
-
-      <div className="form-group">
-        <label>监听模式</label>
-        <select value={rules.listenMode}
-          onChange={e => updateRule('listenMode', e.target.value as any)}>
-          <option value="all">所有人</option>
-          <option value="specific">指定联系人</option>
-          <option value="whitelist">白名单</option>
-          <option value="blacklist">黑名单</option>
-        </select>
-      </div>
-
-      <div className="form-group">
-        <label className="switch-label">
-          <input type="checkbox" checked={rules.triggerOnAt}
-            onChange={e => updateRule('triggerOnAt', e.target.checked)} />
-          <span>群聊 @触发</span>
-        </label>
-      </div>
-
-      <div className="form-group">
-        <label className="switch-label">
-          <input type="checkbox" checked={rules.timeRules.enabled}
-            onChange={e => updateRule('timeRules', { ...rules.timeRules, enabled: e.target.checked })} />
-          <span>时间限制</span>
-        </label>
-      </div>
-
-      {rules.timeRules.enabled && (
-        <div className="form-row">
-          <div className="form-group">
-            <label>开始时间</label>
-            <input type="number" min="0" max="23" value={rules.timeRules.allowedHours[0]}
-              onChange={e => updateRule('timeRules', {
-                ...rules.timeRules,
-                allowedHours: [parseInt(e.target.value), rules.timeRules.allowedHours[1]]
-              })} />
-          </div>
-          <div className="form-group">
-            <label>结束时间</label>
-            <input type="number" min="0" max="23" value={rules.timeRules.allowedHours[1]}
-              onChange={e => updateRule('timeRules', {
-                ...rules.timeRules,
-                allowedHours: [rules.timeRules.allowedHours[0], parseInt(e.target.value)]
-              })} />
-          </div>
+      <div className="rule-group">
+        <div className="rule-group-title"><Zap size={16} /> 基础开关</div>
+        <div className="toggle-row">
+          <span className="toggle-label-text">启用自动回复</span>
+          <ToggleSwitch checked={rules.enabled} onChange={v => updateRule('enabled', v)} />
         </div>
-      )}
-
-      <div className="form-group">
-        <label className="switch-label">
-          <input type="checkbox" checked={rules.rateLimit.enabled}
-            onChange={e => updateRule('rateLimit', { ...rules.rateLimit, enabled: e.target.checked })} />
-          <span>频率限制</span>
-        </label>
       </div>
 
-      {rules.rateLimit.enabled && (
-        <div className="form-row">
-          <div className="form-group">
-            <label>每分钟最大回复数</label>
-            <input type="number" min="1" max="60" value={rules.rateLimit.maxRepliesPerMinute}
-              onChange={e => updateRule('rateLimit', {
-                ...rules.rateLimit,
-                maxRepliesPerMinute: parseInt(e.target.value)
-              })} />
-          </div>
-          <div className="form-group">
-            <label>冷却时间 (秒)</label>
-            <input type="number" min="0" max="300" value={rules.rateLimit.cooldownSeconds}
-              onChange={e => updateRule('rateLimit', {
-                ...rules.rateLimit,
-                cooldownSeconds: parseInt(e.target.value)
-              })} />
-          </div>
+      <div className="rule-group">
+        <div className="rule-group-title"><Users size={16} /> 回复对象</div>
+        <div className="form-group">
+          <label>监听模式</label>
+          <select value={rules.listenMode}
+            onChange={e => updateRule('listenMode', e.target.value as any)}>
+            <option value="all">所有人</option>
+            <option value="specific">指定联系人</option>
+            <option value="whitelist">白名单</option>
+            <option value="blacklist">黑名单</option>
+          </select>
         </div>
-      )}
+        {(rules.listenMode === 'specific' || rules.listenMode === 'whitelist') && (
+          <div className="form-group">
+            <label>选择联系人</label>
+            <ContactPicker
+              selectedIds={rules.targetContacts}
+              onChange={ids => updateRule('targetContacts', ids)}
+            />
+          </div>
+        )}
+        {rules.listenMode === 'blacklist' && (
+          <div className="form-group">
+            <label>黑名单联系人</label>
+            <ContactPicker
+              selectedIds={rules.blacklist}
+              onChange={ids => updateRule('blacklist', ids)}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="rule-group">
+        <div className="rule-group-title"><Search size={16} /> 关键词规则</div>
+        <div className="form-group">
+          <label>包含关键词（匹配任一触发）</label>
+          <TagInput
+            tags={rules.keywords.include}
+            onChange={tags => updateRule('keywords', { ...rules.keywords, include: tags })}
+            placeholder="输入关键词后回车添加"
+          />
+        </div>
+        <div className="form-group">
+          <label>排除关键词（匹配任一跳过）</label>
+          <TagInput
+            tags={rules.keywords.exclude}
+            onChange={tags => updateRule('keywords', { ...rules.keywords, exclude: tags })}
+            placeholder="输入关键词后回车添加"
+          />
+        </div>
+      </div>
+
+      <div className="rule-group">
+        <div className="rule-group-title"><MessageSquare size={16} /> 群聊规则</div>
+        <div className="toggle-row">
+          <span className="toggle-label-text">群聊 @触发</span>
+          <ToggleSwitch checked={rules.triggerOnAt} onChange={v => updateRule('triggerOnAt', v)} />
+        </div>
+        <div className="toggle-row" style={{ marginTop: 12 }}>
+          <span className="toggle-label-text">@所有人触发</span>
+          <ToggleSwitch checked={rules.triggerOnAtAll} onChange={v => updateRule('triggerOnAtAll', v)} />
+        </div>
+      </div>
+
+      <div className="rule-group">
+        <div className="rule-group-title"><Clock size={16} /> 时间规则</div>
+        <div className="toggle-row">
+          <span className="toggle-label-text">启用时间限制</span>
+          <ToggleSwitch
+            checked={rules.timeRules.enabled}
+            onChange={v => updateRule('timeRules', { ...rules.timeRules, enabled: v })}
+          />
+        </div>
+        {rules.timeRules.enabled && (
+          <div className="form-group" style={{ marginTop: 12 }}>
+            <label>允许回复的时间范围</label>
+            <TimeRangeSlider
+              value={rules.timeRules.allowedHours}
+              onChange={v => updateRule('timeRules', { ...rules.timeRules, allowedHours: v })}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="rule-group">
+        <div className="rule-group-title"><Shield size={16} /> 频率限制</div>
+        <div className="toggle-row">
+          <span className="toggle-label-text">启用频率限制</span>
+          <ToggleSwitch
+            checked={rules.rateLimit.enabled}
+            onChange={v => updateRule('rateLimit', { ...rules.rateLimit, enabled: v })}
+          />
+        </div>
+        {rules.rateLimit.enabled && (
+          <div className="form-row" style={{ marginTop: 12 }}>
+            <div className="form-group">
+              <label>每分钟最大回复数</label>
+              <input type="number" min="1" max="60" value={rules.rateLimit.maxRepliesPerMinute}
+                onChange={e => updateRule('rateLimit', {
+                  ...rules.rateLimit,
+                  maxRepliesPerMinute: parseInt(e.target.value)
+                })} />
+            </div>
+            <div className="form-group">
+              <label>冷却时间 (秒)</label>
+              <input type="number" min="0" max="300" value={rules.rateLimit.cooldownSeconds}
+                onChange={e => updateRule('rateLimit', {
+                  ...rules.rateLimit,
+                  cooldownSeconds: parseInt(e.target.value)
+                })} />
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
 function LogsTab() {
   const store = useAIReplyStore()
+  const [statusFilter, setStatusFilter] = useState('')
+  const [contactFilter, setContactFilter] = useState('')
+  const [keywordFilter, setKeywordFilter] = useState('')
+
+  const filteredLogs = store.replyLogs.slice().reverse().filter(log => {
+    if (statusFilter === 'success' && !log.success) return false
+    if (statusFilter === 'error' && log.success) return false
+    if (contactFilter && !log.contactName.includes(contactFilter)) return false
+    if (keywordFilter && !log.receivedMessage.includes(keywordFilter) && !log.generatedReply.includes(keywordFilter)) return false
+    return true
+  })
 
   return (
     <div className="logs-tab">
@@ -575,15 +724,37 @@ function LogsTab() {
         </div>
       </div>
 
-      {store.replyLogs.length === 0 ? (
+      <div className="log-filters">
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+          <option value="">全部状态</option>
+          <option value="success">成功</option>
+          <option value="error">失败</option>
+        </select>
+        <input
+          value={contactFilter}
+          onChange={e => setContactFilter(e.target.value)}
+          placeholder="联系人筛选..."
+        />
+        <input
+          value={keywordFilter}
+          onChange={e => setKeywordFilter(e.target.value)}
+          placeholder="关键词搜索..."
+        />
+      </div>
+
+      {filteredLogs.length === 0 ? (
         <div className="empty-state">
           <MessageSquare size={48} />
           <p>暂无回复日志</p>
         </div>
       ) : (
         <div className="log-list">
-          {store.replyLogs.slice().reverse().map(log => (
-            <div key={log.id} className={`log-item ${log.success ? '' : 'log-error'}`}>
+          {filteredLogs.map(log => (
+            <div
+              key={log.id}
+              className={`log-item ${log.success ? '' : 'log-error'}`}
+              onClick={() => store.setSelectedLogDetail(log)}
+            >
               <div className="log-header">
                 <span className="log-contact">{log.contactName}</span>
                 <span className="log-meta">
@@ -600,6 +771,8 @@ function LogsTab() {
           ))}
         </div>
       )}
+
+      <LogDetailDialog log={store.selectedLogDetail} onClose={() => store.setSelectedLogDetail(null)} />
     </div>
   )
 }

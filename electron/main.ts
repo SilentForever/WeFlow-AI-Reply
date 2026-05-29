@@ -1861,7 +1861,7 @@ function registerIpcHandlers() {
   })
 
   // AI 自动回复 IPC 处理器
-  const { AIReplyService } = await import('./services/ai-reply/AIReplyService')
+  const { AIReplyService } = require('./services/ai-reply/AIReplyService') as typeof import('./services/ai-reply/AIReplyService')
   const aiReplyService = new AIReplyService(join(app.getPath('userData'), 'ai-reply', 'skills'))
 
   const aiReplySender = (channel: string, ...args: any[]) => {
@@ -1969,6 +1969,114 @@ function registerIpcHandlers() {
   ipcMain.handle('aiReply:clearContext', async (_, contactId: string) => {
     aiReplyService.getContextManager().clearHistory(contactId)
     return { success: true }
+  })
+  ipcMain.handle('aiReply:fetchAvailableModels', async (_, modelType: string, baseUrl: string, apiKey?: string) => {
+    try {
+      return await aiReplyService.fetchAvailableModels(modelType as any, baseUrl, apiKey)
+    } catch (e: any) {
+      return []
+    }
+  })
+  ipcMain.handle('aiReply:importSkillFromDirectory', async (_, dir: string) => {
+    try {
+      return await aiReplyService.importSkillFromDirectory(dir)
+    } catch (e: any) {
+      return { error: e.message }
+    }
+  })
+  ipcMain.handle('aiReply:importSkillFromZip', async (_, path: string) => {
+    try {
+      return await aiReplyService.importSkillFromZip(path)
+    } catch (e: any) {
+      return { error: e.message }
+    }
+  })
+  ipcMain.handle('aiReply:importSkillFromGit', async (_, url: string) => {
+    try {
+      return await aiReplyService.importSkillFromGit(url)
+    } catch (e: any) {
+      return { error: e.message }
+    }
+  })
+  ipcMain.handle('aiReply:createSkill', async (_, skill: any) => {
+    try {
+      aiReplyService.getSkillEngine().addSkill(skill)
+      return skill
+    } catch (e: any) {
+      return { error: e.message }
+    }
+  })
+  ipcMain.handle('aiReply:updateSkill', async (_, id: string, skill: any) => {
+    try {
+      const engine = aiReplyService.getSkillEngine()
+      engine.removeSkill(id)
+      engine.addSkill({ ...skill, id })
+      return { success: true }
+    } catch (e: any) {
+      return { error: e.message }
+    }
+  })
+  ipcMain.handle('aiReply:exportSkill', async (_, id: string) => {
+    const skill = aiReplyService.getSkillEngine().getSkill(id)
+    return skill ? JSON.stringify(skill, null, 2) : ''
+  })
+  ipcMain.handle('aiReply:getSkillDetail', async (_, id: string) => {
+    return aiReplyService.getSkillEngine().getSkill(id) || null
+  })
+  ipcMain.handle('aiReply:startDistill', async (_, params: any) => {
+    try {
+      const taskId = await aiReplyService.startDistill(params)
+      return taskId
+    } catch (e: any) {
+      return { error: e.message }
+    }
+  })
+  ipcMain.handle('aiReply:cancelDistill', async (_, taskId: string) => {
+    aiReplyService.cancelDistill(taskId)
+  })
+  ipcMain.handle('aiReply:getDistillProgress', async (_, taskId: string) => {
+    return aiReplyService.getDistillProgress(taskId)
+  })
+  ipcMain.handle('aiReply:getDistillResult', async (_, taskId: string) => {
+    return aiReplyService.getDistillResult(taskId)
+  })
+  ipcMain.handle('aiReply:saveDistillSkill', async (_, taskId: string, override?: any) => {
+    try {
+      return await aiReplyService.saveDistillSkill(taskId, override)
+    } catch (e: any) {
+      return { error: e.message }
+    }
+  })
+  ipcMain.handle('aiReply:fetchChatRecords', async (_, contactId: string, limit: number, startDate?: string, endDate?: string) => {
+    try {
+      return await aiReplyService.fetchChatRecords(contactId, limit, startDate, endDate)
+    } catch (e: any) {
+      return []
+    }
+  })
+  ipcMain.handle('aiReply:estimateDistillCost', async (_, contactId: string, messageLimit: number, depth: number) => {
+    const avgTokensPerMsg = 50
+    const rounds = Math.min(depth || 6, 6)
+    const inputTokens = messageLimit * avgTokensPerMsg * rounds
+    const outputTokens = rounds * 800
+    return {
+      tokenEstimate: inputTokens + outputTokens,
+      feeEstimate: (inputTokens * 0.000003 + outputTokens * 0.000015)
+    }
+  })
+  ipcMain.handle('aiReply:getWeFlowAPIConfig', async () => {
+    return aiReplyService.getWeFlowAPIConfig()
+  })
+  ipcMain.handle('aiReply:searchContacts', async (_, keyword: string, limit?: number) => {
+    try {
+      return await aiReplyService.searchContacts(keyword, limit)
+    } catch (e: any) {
+      return []
+    }
+  })
+
+  aiReplyService.on('distillProgress', (progress: any) => {
+    aiReplySender('aiReply:distillProgress', progress)
   })
 
   ipcMain.handle('config:clear', async () => {

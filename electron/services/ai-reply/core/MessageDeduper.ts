@@ -1,4 +1,4 @@
-import type { WeChatMessage } from '../../src/types/ai-reply'
+import type { WeChatMessage } from '../../../../src/types/ai-reply'
 
 interface DedupEntry {
   contentHash: string

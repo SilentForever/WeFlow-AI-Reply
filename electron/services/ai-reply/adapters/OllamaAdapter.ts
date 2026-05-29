@@ -1,5 +1,5 @@
 import { BaseAdapter } from './BaseAdapter'
-import type { ChatMessage, GenerateOptions, GenerateResult, TestResult, OllamaConfig } from '../../../src/types/ai-reply'
+import type { ChatMessage, GenerateOptions, GenerateResult, TestResult, OllamaConfig } from '../../../../src/types/ai-reply'
 
 export class OllamaAdapter extends BaseAdapter {
   private getConfig(): OllamaConfig {
@@ -92,5 +92,20 @@ export class OllamaAdapter extends BaseAdapter {
   validateConfig(): boolean {
     const cfg = this.getConfig()
     return !!cfg.baseUrl && !!cfg.model
+  }
+
+  async fetchAvailableModels(): Promise<{ id: string; name: string; isLocal: boolean }[]> {
+    const cfg = this.getConfig()
+    try {
+      const res = await fetch(`${cfg.baseUrl}/api/tags`)
+      const data = await res.json()
+      return (data.models || []).map((m: any) => ({
+        id: m.name as string,
+        name: m.name as string,
+        isLocal: true
+      }))
+    } catch {
+      return []
+    }
   }
 }

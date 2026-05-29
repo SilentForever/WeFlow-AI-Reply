@@ -1,11 +1,12 @@
 import { EventEmitter } from 'events'
-import type { WeChatMessage, Skill, ReplyLog, DailyStats, ContactSkillMapping } from '../../src/types/ai-reply'
-import { DEFAULT_TRIGGER_RULES } from '../../src/types/ai-reply'
-import { createAdapter, type BaseAdapter } from '../adapters'
-import { SkillEngine } from '../skill/SkillEngine'
-import { ContextManager } from './ContextManager'
-import { TriggerEngine } from './TriggerEngine'
-import { MessageDeduper } from './MessageDeduper'
+import type { WeChatMessage, Skill, ReplyLog, DailyStats, ContactSkillMapping, ModelType, ModelInfo, DistillConfig, DistillProgress, ChatRecord } from '../../../src/types/ai-reply'
+import { DEFAULT_TRIGGER_RULES } from '../../../src/types/ai-reply'
+import { createAdapter, type BaseAdapter } from './adapters'
+import { SkillEngine } from './skill/SkillEngine'
+import { ContextManager } from './core/ContextManager'
+import { TriggerEngine } from './core/TriggerEngine'
+import { MessageDeduper } from './core/MessageDeduper'
+import { DistillService } from './distill/DistillService'
 
 export interface AIReplyServiceEvents {
   statusChanged: (status: string) => void
@@ -30,6 +31,7 @@ export class AIReplyService extends EventEmitter {
   private sseConnection: EventSource | null = null
   private sseUrl: string = 'http://127.0.0.1:5031/api/v1/push/messages'
   private accessToken: string = ''
+  private distillService: DistillService
 
   constructor(skillsDir: string) {
     super()
@@ -37,6 +39,7 @@ export class AIReplyService extends EventEmitter {
     this.contextManager = new ContextManager()
     this.triggerEngine = new TriggerEngine(DEFAULT_TRIGGER_RULES)
     this.messageDeduper = new MessageDeduper()
+    this.distillService = new DistillService()
   }
 
   async start(): Promise<void> {
@@ -351,6 +354,112 @@ export class AIReplyService extends EventEmitter {
     if (this.sseConnection) {
       this.sseConnection.close()
       this.sseConnection = null
+    }
+  }
+
+  async fetchAvailableModels(modelType: ModelType, baseUrl: string, apiKey?: string): Promise<ModelInfo[]> {
+    const config: any = {
+      id: `_fetch_${modelType}`,
+      name: `_fetch_${modelType}`,
+      type: modelType,
+      enabled: true,
+      config: modelType === 'ollama'
+        ? { baseUrl, model: '', temperature: 0.7, maxTokens: 2048 }
+        : { apiKey: apiKey || '', baseUrl, model: '', temperature: 0.7, maxTokens: 2048 }
+    }
+
+    try {
+      const adapter = createAdapter(config)
+      const models = await adapter.fetchAvailableModels()
+      return models.map(m => ({
+        id: m.id,
+        name: m.name,
+        type: modelType,
+        isLocal: m.isLocal
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  async importSkillFromDirectory(sourceDir: string): Promise<Skill> {
+    return this.skillEngine.importSkillFromDirectory(sourceDir)
+  }
+
+  async importSkillFromZip(zipPath: string): Promise<Skill> {
+    return this.skillEngine.importSkillFromZip(zipPath)
+  }
+
+  async importSkillFromGit(repoUrl: string): Promise<Skill> {
+    return this.skillEngine.importSkillFromGit(repoUrl)
+  }
+
+  async startDistill(params: {
+    contactId: string
+    config: DistillConfig
+  }): Promise<string> {
+    const adapter = this.modelAdapters.get(this.activeModelId)
+    if (!adapter) {
+      throw new Error('No active model adapter configured')
+    }
+
+    this.distillService.setWeFlowConfig(this.sseUrl.replace('/api/v1/push/messages', ''), this.accessToken)
+
+    return this.distillService.distillFromChatRecords(
+      params.contactId,
+      params.config,
+      adapter
+    )
+  }
+
+  cancelDistill(taskId: string): void {
+    this.distillService.cancelTask(taskId)
+  }
+
+  getDistillProgress(taskId: string): DistillProgress | null {
+    return this.distillService.getProgress(taskId)
+  }
+
+  getDistillResult(taskId: string): Skill | null {
+    return this.distillService.getResult(taskId)
+  }
+
+  async saveDistillSkill(taskId: string, override?: Partial<Skill>): Promise<Skill> {
+    const skill = this.distillService.getResult(taskId)
+    if (!skill) throw new Error(`No result found for task: ${taskId}`)
+
+    const finalSkill = override ? { ...skill, ...override } : skill
+    const outputDir = `${(this.skillEngine as any).skillsDir}/${finalSkill.id}`
+    const saved = await this.distillService.saveSkill(taskId, outputDir, override)
+    this.skillEngine.addSkill(saved)
+    return saved
+  }
+
+  async fetchChatRecords(contactId: string, limit: number, startDate?: string, endDate?: string): Promise<ChatRecord[]> {
+    return this.distillService.fetchChatRecords(contactId, limit, startDate, endDate)
+  }
+
+  getWeFlowAPIConfig(): { baseUrl: string; accessToken: string } {
+    return {
+      baseUrl: this.sseUrl.replace('/api/v1/push/messages', ''),
+      accessToken: this.accessToken
+    }
+  }
+
+  async searchContacts(keyword: string, limit: number = 20): Promise<any[]> {
+    const { baseUrl, accessToken } = this.getWeFlowAPIConfig()
+    const params = new URLSearchParams({ keyword, limit: String(limit) })
+    const url = `${baseUrl}/api/v1/contacts/search?${params.toString()}`
+
+    try {
+      const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      })
+      if (!res.ok) return []
+      const data: any = await res.json()
+      return data.contacts || data.data || []
+    } catch {
+      return []
     }
   }
 }

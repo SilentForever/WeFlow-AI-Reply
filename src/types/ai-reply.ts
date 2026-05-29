@@ -241,6 +241,84 @@ export const DEFAULT_REPLY_STRATEGY: ReplyStrategy = {
   breakOnPunctuation: true
 }
 
+export interface ModelPreset {
+  name: string
+  type: ModelType
+  baseUrl: string
+  defaultModel: string
+  needsApiKey: boolean
+}
+
+export interface DistillProgress {
+  taskId: string
+  status: 'preparing' | 'distilling' | 'validating' | 'completed' | 'cancelled' | 'error'
+  currentRound: number
+  totalRounds: number
+  roundResults: { round: number; name: string; status: 'pending' | 'running' | 'completed' | 'error'; durationMs?: number }[]
+  tokenUsage: { inputTokens: number; outputTokens: number; totalTokens: number }
+  error?: string
+}
+
+export interface DistillConfig {
+  depth: 'standard' | 'deep'
+  dimensions: ('expressionDNA' | 'mentalModels' | 'decisionHeuristics' | 'valuesAndAntiPatterns' | 'honestyBoundaries' | 'emotionalPatterns')[]
+  skillName: string
+  skillDescription: string
+}
+
+export interface ChatRecord {
+  id: string
+  content: string
+  isSend: boolean
+  timestamp: number
+  type: number
+}
+
+export const MODEL_PRESETS: ModelPreset[] = [
+  {
+    name: 'Ollama (本地)',
+    type: 'ollama',
+    baseUrl: 'http://localhost:11434',
+    defaultModel: 'llama3',
+    needsApiKey: false
+  },
+  {
+    name: 'OpenAI',
+    type: 'openai',
+    baseUrl: 'https://api.openai.com/v1',
+    defaultModel: 'gpt-4o',
+    needsApiKey: true
+  },
+  {
+    name: 'Claude',
+    type: 'claude',
+    baseUrl: 'https://api.anthropic.com/v1',
+    defaultModel: 'claude-sonnet-4-20250514',
+    needsApiKey: true
+  },
+  {
+    name: 'Gemini',
+    type: 'gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+    defaultModel: 'gemini-2.0-flash',
+    needsApiKey: true
+  },
+  {
+    name: '魔搭社区',
+    type: 'openai',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    defaultModel: 'qwen-turbo',
+    needsApiKey: true
+  },
+  {
+    name: 'DeepSeek',
+    type: 'openai',
+    baseUrl: 'https://api.deepseek.com/v1',
+    defaultModel: 'deepseek-chat',
+    needsApiKey: true
+  }
+]
+
 export const DEFAULT_SKILL: Skill = {
   id: 'default-assistant',
   name: '默认助手',

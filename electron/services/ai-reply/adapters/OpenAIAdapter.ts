@@ -1,5 +1,5 @@
 import { BaseAdapter } from './BaseAdapter'
-import type { ChatMessage, GenerateOptions, GenerateResult, TestResult, OpenAICompatibleConfig } from '../../../src/types/ai-reply'
+import type { ChatMessage, GenerateOptions, GenerateResult, TestResult, OpenAICompatibleConfig } from '../../../../src/types/ai-reply'
 
 export class OpenAIAdapter extends BaseAdapter {
   private getConfig(): OpenAICompatibleConfig {
@@ -86,5 +86,22 @@ export class OpenAIAdapter extends BaseAdapter {
   validateConfig(): boolean {
     const cfg = this.getConfig()
     return !!cfg.apiKey && !!cfg.baseUrl && !!cfg.model
+  }
+
+  async fetchAvailableModels(): Promise<{ id: string; name: string; isLocal: boolean }[]> {
+    const cfg = this.getConfig()
+    try {
+      const res = await fetch(`${cfg.baseUrl}/models`, {
+        headers: { 'Authorization': `Bearer ${cfg.apiKey}` }
+      })
+      const data = await res.json()
+      return (data.data || []).map((m: any) => ({
+        id: m.id as string,
+        name: m.id as string,
+        isLocal: false
+      }))
+    } catch {
+      return []
+    }
   }
 }

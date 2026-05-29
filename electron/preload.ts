@@ -631,6 +631,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clearReplyLogs: () => ipcRenderer.invoke('aiReply:clearReplyLogs'),
     getDailyStats: () => ipcRenderer.invoke('aiReply:getDailyStats'),
     clearContext: (contactId: string) => ipcRenderer.invoke('aiReply:clearContext', contactId),
+    fetchAvailableModels: (type: string, baseUrl: string, apiKey?: string) => ipcRenderer.invoke('aiReply:fetchAvailableModels', type, baseUrl, apiKey),
+    importSkillFromDirectory: (dir: string) => ipcRenderer.invoke('aiReply:importSkillFromDirectory', dir),
+    importSkillFromZip: (path: string) => ipcRenderer.invoke('aiReply:importSkillFromZip', path),
+    importSkillFromGit: (url: string) => ipcRenderer.invoke('aiReply:importSkillFromGit', url),
+    createSkill: (skill: any) => ipcRenderer.invoke('aiReply:createSkill', skill),
+    updateSkill: (id: string, skill: any) => ipcRenderer.invoke('aiReply:updateSkill', id, skill),
+    exportSkill: (id: string) => ipcRenderer.invoke('aiReply:exportSkill', id),
+    getSkillDetail: (id: string) => ipcRenderer.invoke('aiReply:getSkillDetail', id),
+    startDistill: (params: any) => ipcRenderer.invoke('aiReply:startDistill', params),
+    cancelDistill: (taskId: string) => ipcRenderer.invoke('aiReply:cancelDistill', taskId),
+    getDistillProgress: (taskId: string) => ipcRenderer.invoke('aiReply:getDistillProgress', taskId),
+    getDistillResult: (taskId: string) => ipcRenderer.invoke('aiReply:getDistillResult', taskId),
+    saveDistillSkill: (taskId: string, override?: any) => ipcRenderer.invoke('aiReply:saveDistillSkill', taskId, override),
+    fetchChatRecords: (contactId: string, limit: number, startDate?: string, endDate?: string) => ipcRenderer.invoke('aiReply:fetchChatRecords', contactId, limit, startDate, endDate),
+    estimateDistillCost: (contactId: string, messageLimit: number, depth: number) => ipcRenderer.invoke('aiReply:estimateDistillCost', contactId, messageLimit, depth),
+    getWeFlowAPIConfig: () => ipcRenderer.invoke('aiReply:getWeFlowAPIConfig'),
+    searchContacts: (keyword: string, limit?: number) => ipcRenderer.invoke('aiReply:searchContacts', keyword, limit),
     onStatusChanged: (callback: (status: string) => void) => {
       const listener = (_: any, status: string) => callback(status)
       ipcRenderer.on('aiReply:statusChanged', listener)
@@ -650,6 +667,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const listener = (_: any, message: any) => callback(message)
       ipcRenderer.on('aiReply:messageReceived', listener)
       return () => ipcRenderer.removeListener('aiReply:messageReceived', listener)
+    },
+    onDistillProgress: (callback: (progress: any) => void) => {
+      const listener = (_: any, progress: any) => callback(progress)
+      ipcRenderer.on('aiReply:distillProgress', listener)
+      return () => ipcRenderer.removeListener('aiReply:distillProgress', listener)
     }
   }
 })

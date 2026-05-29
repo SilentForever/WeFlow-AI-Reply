@@ -2,7 +2,7 @@ import { BaseAdapter } from './BaseAdapter'
 import { OllamaAdapter } from './OllamaAdapter'
 import { OpenAIAdapter } from './OpenAIAdapter'
 import { CustomAPIAdapter } from './CustomAPIAdapter'
-import type { ModelConfig, ModelType, TestResult } from '../../src/types/ai-reply'
+import type { ModelConfig, ModelType, TestResult } from '../../../../src/types/ai-reply'
 
 export function createAdapter(config: ModelConfig): BaseAdapter {
   switch (config.type) {

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ServiceStatus, ModelConfig, Skill, TriggerRules, ReplyLog, DailyStats, ContactSkillMapping } from '../types/ai-reply'
+import type { ServiceStatus, ModelConfig, Skill, TriggerRules, ReplyLog, DailyStats, ContactSkillMapping, ModelInfo, DistillProgress, ModelType } from '../types/ai-reply'
 import { DEFAULT_TRIGGER_RULES } from '../types/ai-reply'
 
 const api = () => window.electronAPI?.aiReply
@@ -18,6 +18,13 @@ export interface AIReplyState {
   testReplyResult: string | null
   isLoading: boolean
   error: string | null
+  availableModels: ModelInfo[]
+  fetchModelsLoading: boolean
+  distillProgress: DistillProgress | null
+  distillResult: Skill | null
+  logFilter: { status: string; contactId: string; keyword: string }
+  editingSkill: Skill | null
+  selectedLogDetail: ReplyLog | null
 
   start: () => Promise<void>
   pause: () => Promise<void>
@@ -45,6 +52,18 @@ export interface AIReplyState {
   fetchDailyStats: () => Promise<void>
   clearContext: (contactId: string) => Promise<void>
   setupListeners: () => () => void
+  fetchAvailableModels: (type: ModelType, baseUrl: string, apiKey?: string) => Promise<void>
+  importSkillFromDirectory: (dir: string) => Promise<Skill | null>
+  importSkillFromZip: (path: string) => Promise<Skill | null>
+  importSkillFromGit: (url: string) => Promise<Skill | null>
+  startDistill: (params: any) => Promise<string>
+  cancelDistill: (taskId: string) => Promise<void>
+  getDistillProgress: (taskId: string) => Promise<DistillProgress | null>
+  saveDistillSkill: (taskId: string, override?: any) => Promise<Skill | null>
+  searchContacts: (keyword: string) => Promise<any[]>
+  setLogFilter: (filter: Partial<{ status: string; contactId: string; keyword: string }>) => void
+  setEditingSkill: (skill: Skill | null) => void
+  setSelectedLogDetail: (log: ReplyLog | null) => void
 }
 
 export const useAIReplyStore = create<AIReplyState>((set, get) => ({
@@ -61,6 +80,13 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   testReplyResult: null,
   isLoading: false,
   error: null,
+  availableModels: [],
+  fetchModelsLoading: false,
+  distillProgress: null,
+  distillResult: null,
+  logFilter: { status: '', contactId: '', keyword: '' },
+  editingSkill: null,
+  selectedLogDetail: null,
 
   start: async () => {
     set({ isLoading: true, error: null })
@@ -214,5 +240,103 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
       unsub2()
       unsub3()
     }
+  },
+
+  fetchAvailableModels: async (type, baseUrl, apiKey) => {
+    set({ fetchModelsLoading: true })
+    try {
+      const models = await api()?.fetchAvailableModels(type, baseUrl, apiKey) || []
+      set({ availableModels: models as ModelInfo[], fetchModelsLoading: false })
+    } catch {
+      set({ availableModels: [], fetchModelsLoading: false })
+    }
+  },
+
+  importSkillFromDirectory: async (dir) => {
+    try {
+      const skill = await api()?.importSkillFromDirectory(dir)
+      if (skill) {
+        await get().fetchSkills()
+        return skill as Skill
+      }
+    } catch {}
+    return null
+  },
+
+  importSkillFromZip: async (path) => {
+    try {
+      const skill = await api()?.importSkillFromZip(path)
+      if (skill) {
+        await get().fetchSkills()
+        return skill as Skill
+      }
+    } catch {}
+    return null
+  },
+
+  importSkillFromGit: async (url) => {
+    try {
+      const skill = await api()?.importSkillFromGit(url)
+      if (skill) {
+        await get().fetchSkills()
+        return skill as Skill
+      }
+    } catch {}
+    return null
+  },
+
+  startDistill: async (params) => {
+    const taskId = await api()?.startDistill(params) || ''
+    return taskId
+  },
+
+  cancelDistill: async (taskId) => {
+    await api()?.cancelDistill(taskId)
+  },
+
+  getDistillProgress: async (taskId) => {
+    try {
+      const progress = await api()?.getDistillProgress(taskId)
+      if (progress) {
+        set({ distillProgress: progress as DistillProgress })
+        return progress as DistillProgress
+      }
+    } catch {}
+    return null
+  },
+
+  saveDistillSkill: async (taskId, override) => {
+    try {
+      const skill = await api()?.saveDistillSkill(taskId, override)
+      if (skill) {
+        await get().fetchSkills()
+        set({ distillResult: skill as Skill })
+        return skill as Skill
+      }
+    } catch {}
+    return null
+  },
+
+  searchContacts: async (keyword) => {
+    try {
+      const contacts = await api()?.searchContacts(keyword) || []
+      return contacts
+    } catch {
+      return []
+    }
+  },
+
+  setLogFilter: (filter) => {
+    set((state) => ({
+      logFilter: { ...state.logFilter, ...filter }
+    }))
+  },
+
+  setEditingSkill: (skill) => {
+    set({ editingSkill: skill })
+  },
+
+  setSelectedLogDetail: (log) => {
+    set({ selectedLogDetail: log })
   }
 }))
