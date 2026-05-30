@@ -48,7 +48,8 @@ export class GeminiAdapter extends BaseAdapter {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000)
     })
 
     if (!response.ok) {
@@ -80,7 +81,7 @@ export class GeminiAdapter extends BaseAdapter {
       }
 
       const url = `${cfg.baseUrl.replace(/\/$/, '')}/models?key=${cfg.apiKey}`
-      const response = await fetch(url, { method: 'GET' })
+      const response = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(10000) })
 
       if (response.status === 400 || response.status === 401 || response.status === 403) {
         return { success: false, message: 'API Key 无效', latencyMs: Date.now() - startTime }
@@ -109,7 +110,7 @@ export class GeminiAdapter extends BaseAdapter {
     const cfg = this.getConfig()
     try {
       const url = `${cfg.baseUrl.replace(/\/$/, '')}/models?key=${cfg.apiKey}`
-      const res = await fetch(url)
+      const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
       const data = await res.json()
       return (data.models || [])
         .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))

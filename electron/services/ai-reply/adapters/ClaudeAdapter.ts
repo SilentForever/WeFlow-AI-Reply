@@ -48,7 +48,8 @@ export class ClaudeAdapter extends BaseAdapter {
         'x-api-key': cfg.apiKey,
         'anthropic-version': '2023-06-01'
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000)
     })
 
     if (!response.ok) {
@@ -91,7 +92,8 @@ export class ClaudeAdapter extends BaseAdapter {
           model: cfg.model,
           max_tokens: 10,
           messages: [{ role: 'user', content: 'Hi' }]
-        })
+        }),
+        signal: AbortSignal.timeout(10000)
       })
 
       if (response.status === 401) {

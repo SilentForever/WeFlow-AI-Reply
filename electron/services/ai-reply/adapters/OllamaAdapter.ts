@@ -24,7 +24,8 @@ export class OllamaAdapter extends BaseAdapter {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000)
     })
 
     if (!response.ok) {
@@ -52,7 +53,7 @@ export class OllamaAdapter extends BaseAdapter {
 
     try {
       const url = `${cfg.baseUrl.replace(/\/$/, '')}/api/tags`
-      const response = await fetch(url, { method: 'GET' })
+      const response = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(10000) })
 
       if (!response.ok) {
         return {
@@ -97,7 +98,7 @@ export class OllamaAdapter extends BaseAdapter {
   async fetchAvailableModels(): Promise<{ id: string; name: string; isLocal: boolean }[]> {
     const cfg = this.getConfig()
     try {
-      const res = await fetch(`${cfg.baseUrl}/api/tags`)
+      const res = await fetch(`${cfg.baseUrl}/api/tags`, { signal: AbortSignal.timeout(10000) })
       const data = await res.json()
       return (data.models || []).map((m: any) => ({
         id: m.name as string,

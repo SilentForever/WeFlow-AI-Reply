@@ -46,15 +46,23 @@ export class CustomAPIAdapter extends BaseAdapter {
         ...cfg.headers
       }
 
+      const testBody = this.buildRequestBody(cfg, [{ role: 'user', content: 'Hello' }], { temperature: 0.7, maxTokens: 10 })
+
       const response = await fetch(cfg.url, {
         method: cfg.method || 'POST',
         headers,
-        body: cfg.method === 'GET' ? undefined : JSON.stringify({})
+        body: cfg.method === 'GET' ? undefined : JSON.stringify(testBody),
+        signal: AbortSignal.timeout(10000)
       })
 
+      const success = response.ok || (response.status >= 400 && response.status < 500)
+      const message = success
+        ? (response.ok ? 'API 端点可达且响应正常' : `API 端点可达 (状态码 ${response.status})`)
+        : `服务器错误: HTTP ${response.status}`
+
       return {
-        success: response.status < 500,
-        message: response.status < 500 ? 'API 端点可达' : `服务器错误: HTTP ${response.status}`,
+        success,
+        message,
         latencyMs: Date.now() - startTime
       }
     } catch (error) {
@@ -80,21 +88,48 @@ export class CustomAPIAdapter extends BaseAdapter {
     messages: ChatMessage[],
     options?: GenerateOptions
   ): Record<string, unknown> {
-    const body = { ...cfg.bodyTemplate }
+    const body = JSON.parse(JSON.stringify(cfg.bodyTemplate || {}))
 
-    for (const [key, value] of Object.entries(body)) {
-      if (typeof value === 'string') {
-        if (value === '${MESSAGES}') {
-          body[key] = messages.map(m => ({ role: m.role, content: m.content }))
-        } else if (value === '${TEMPERATURE}') {
-          body[key] = options?.temperature ?? 0.7
-        } else if (value === '${MAX_TOKENS}') {
-          body[key] = options?.maxTokens ?? 2048
+    const systemPrompt = messages.find(m => m.role === 'system')?.content
+    const userMessage = messages.filter(m => m.role === 'user').pop()?.content
+
+    const replaceValues = (obj: any): any => {
+      if (typeof obj === 'string') {
+        switch (obj) {
+          case '${MESSAGES}':
+            return messages.map(m => ({ role: m.role, content: m.content }))
+          case '${TEMPERATURE}':
+            return options?.temperature ?? 0.7
+          case '${MAX_TOKENS}':
+            return options?.maxTokens ?? 2048
+          case '${SYSTEM_PROMPT}':
+            return systemPrompt ?? ''
+          case '${USER_MESSAGE}':
+            return userMessage ?? ''
+          case '${MODEL}':
+            return cfg.model ?? ''
+          default:
+            return obj
+              .replace(/\${MESSAGES}/g, JSON.stringify(messages.map(m => ({ role: m.role, content: m.content }))))
+              .replace(/\${TEMPERATURE}/g, String(options?.temperature ?? 0.7))
+              .replace(/\${MAX_TOKENS}/g, String(options?.maxTokens ?? 2048))
+              .replace(/\${SYSTEM_PROMPT}/g, systemPrompt ?? '')
+              .replace(/\${USER_MESSAGE}/g, userMessage ?? '')
+              .replace(/\${MODEL}/g, cfg.model ?? '')
         }
+      } else if (Array.isArray(obj)) {
+        return obj.map(replaceValues)
+      } else if (obj !== null && typeof obj === 'object') {
+        const result: Record<string, unknown> = {}
+        for (const [k, v] of Object.entries(obj)) {
+          result[k] = replaceValues(v)
+        }
+        return result
       }
+      return obj
     }
 
-    return body
+    return replaceValues(body)
   }
 
   private extractResponse(data: Record<string, unknown>, path: string): string {

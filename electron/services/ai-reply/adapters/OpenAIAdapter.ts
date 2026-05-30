@@ -24,7 +24,8 @@ export class OpenAIAdapter extends BaseAdapter {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${cfg.apiKey}`
       },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000)
     })
 
     if (!response.ok) {
@@ -58,7 +59,8 @@ export class OpenAIAdapter extends BaseAdapter {
       const url = `${cfg.baseUrl.replace(/\/$/, '')}/models`
       const response = await fetch(url, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${cfg.apiKey}` }
+        headers: { 'Authorization': `Bearer ${cfg.apiKey}` },
+        signal: AbortSignal.timeout(10000)
       })
 
       if (!response.ok) {
@@ -69,9 +71,26 @@ export class OpenAIAdapter extends BaseAdapter {
         }
       }
 
+      let modelExists = false
+      try {
+        const data = await response.json()
+        modelExists = (data.data || []).some((m: any) => m.id === cfg.model)
+      } catch {
+        // 如果解析失败，就假设模型存在
+        modelExists = true
+      }
+
+      if (!modelExists) {
+        return {
+          success: false,
+          message: `模型 "${cfg.model}" 未在可用列表中`,
+          latencyMs: Date.now() - startTime
+        }
+      }
+
       return {
         success: true,
-        message: `连接成功，API 可用`,
+        message: `连接成功，模型 "${cfg.model}" 可用`,
         latencyMs: Date.now() - startTime
       }
     } catch (error) {
@@ -92,7 +111,8 @@ export class OpenAIAdapter extends BaseAdapter {
     const cfg = this.getConfig()
     try {
       const res = await fetch(`${cfg.baseUrl}/models`, {
-        headers: { 'Authorization': `Bearer ${cfg.apiKey}` }
+        headers: { 'Authorization': `Bearer ${cfg.apiKey}` },
+        signal: AbortSignal.timeout(10000)
       })
       const data = await res.json()
       return (data.data || []).map((m: any) => ({
