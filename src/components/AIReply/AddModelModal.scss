@@ -102,6 +102,19 @@
     }
   }
 
+  .add-model-error {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    margin: 0 24px;
+    background: #ffebee;
+    color: #c62828;
+    border-radius: 8px;
+    font-size: 13px;
+    border: 1px solid #ef9a9a;
+  }
+
   .modal-footer {
     display: flex;
     justify-content: flex-end;

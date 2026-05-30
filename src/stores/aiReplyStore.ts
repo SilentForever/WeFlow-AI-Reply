@@ -133,8 +133,19 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   },
 
   addModel: async (config) => {
-    await api()?.addModel(config)
-    await get().fetchModels()
+    set({ isLoading: true, error: null })
+    try {
+      const result = await api()?.addModel(config)
+      if (result && !result.success) {
+        throw new Error(result.error || '添加模型失败')
+      }
+      await get().fetchModels()
+    } catch (e: any) {
+      set({ error: e.message || '添加模型失败', isLoading: false })
+      throw e
+    } finally {
+      set({ isLoading: false })
+    }
   },
 
   removeModel: async (modelId) => {

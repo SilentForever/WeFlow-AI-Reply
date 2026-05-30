@@ -20,12 +20,14 @@ export default function AddModelModal({ open, onClose }: AddModelModalProps) {
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(2048)
   const [submitting, setSubmitting] = useState(false)
+  const [addError, setAddError] = useState('')
 
   if (!open) return null
 
   const handleSubmit = async () => {
     if (!name.trim() || !model.trim()) return
     setSubmitting(true)
+    setAddError('')
     try {
       let config: any
       if (type === 'ollama') {
@@ -54,6 +56,8 @@ export default function AddModelModal({ open, onClose }: AddModelModalProps) {
       setModel('deepseek-r1:7b')
       setTemperature(0.7)
       setMaxTokens(2048)
+    } catch (e: any) {
+      setAddError(e.message || '添加模型失败')
     } finally {
       setSubmitting(false)
     }
@@ -133,6 +137,13 @@ export default function AddModelModal({ open, onClose }: AddModelModalProps) {
             </div>
           </div>
         </div>
+
+        {addError && (
+          <div className="add-model-error">
+            <XCircle size={14} />
+            <span>{addError}</span>
+          </div>
+        )}
 
         <div className="modal-footer">
           <button className="btn" onClick={onClose}>取消</button>

@@ -1946,7 +1946,11 @@ function registerIpcHandlers() {
     } else {
       modelConfigs.push(modelConfig)
     }
-    aiReplyService.setModelAdapter(modelConfig)
+    try {
+      aiReplyService.setModelAdapter(modelConfig)
+    } catch (e: any) {
+      console.error('[AIReply] setModelAdapter failed:', e)
+    }
     saveAIReplyConfig()
     return { success: true }
   })
