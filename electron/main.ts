@@ -1935,8 +1935,8 @@ function registerIpcHandlers() {
   ipcMain.handle('aiReply:reloadSkills', async () => {
     return aiReplyService.getSkillEngine().loadAllSkills()
   })
-  ipcMain.handle('aiReply:generateTestReply', async (_, skillId: string, testMessage: string) => {
-    return aiReplyService.generateTestReply(skillId, testMessage)
+  ipcMain.handle('aiReply:generateTestReply', async (_, skillId: string, modelId: string, testMessage: string) => {
+    return aiReplyService.generateTestReply(skillId, modelId, testMessage)
   })
   ipcMain.handle('aiReply:setTriggerRules', async (_, rules: any) => {
     aiReplyService.setTriggerRules(rules)

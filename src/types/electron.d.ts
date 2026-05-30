@@ -1339,7 +1339,7 @@ export interface ElectronAPI {
     setActiveSkill: (skillId: string) => Promise<{ success: boolean }>
     getSkills: () => Promise<unknown[]>
     reloadSkills: () => Promise<unknown[]>
-    generateTestReply: (skillId: string, testMessage: string) => Promise<string>
+    generateTestReply: (skillId: string, modelId: string, testMessage: string) => Promise<{ content: string; latencyMs?: number } | string>
     setTriggerRules: (rules: unknown) => Promise<{ success: boolean }>
     getTriggerRules: () => Promise<Record<string, unknown>>
     setContactSkillMapping: (contactId: string, skillId: string) => Promise<{ success: boolean }>

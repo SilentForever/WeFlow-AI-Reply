@@ -16,6 +16,7 @@ export interface AIReplyState {
   contactSkillMappings: ContactSkillMapping[]
   testResult: { success: boolean; message: string; latencyMs?: number } | null
   testReplyResult: string | null
+  testReplyLatencyMs: number | undefined
   isLoading: boolean
   error: string | null
   availableModels: ModelInfo[]
@@ -41,7 +42,7 @@ export interface AIReplyState {
   removeSkill: (skillId: string) => Promise<void>
   setActiveSkill: (skillId: string) => Promise<void>
   reloadSkills: () => Promise<void>
-  generateTestReply: (skillId: string, testMessage: string) => Promise<void>
+  generateTestReply: (skillId: string, modelId: string, testMessage: string) => Promise<void>
   setTriggerRules: (rules: TriggerRules) => Promise<void>
   fetchTriggerRules: () => Promise<void>
   setContactSkillMapping: (contactId: string, skillId: string) => Promise<void>
@@ -64,6 +65,7 @@ export interface AIReplyState {
   setLogFilter: (filter: Partial<{ status: string; contactId: string; keyword: string }>) => void
   setEditingSkill: (skill: Skill | null) => void
   setSelectedLogDetail: (log: ReplyLog | null) => void
+  clearTestReply: () => void
 }
 
 export const useAIReplyStore = create<AIReplyState>((set, get) => ({
@@ -78,6 +80,7 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   contactSkillMappings: [],
   testResult: null,
   testReplyResult: null,
+  testReplyLatencyMs: undefined,
   isLoading: false,
   error: null,
   availableModels: [],
@@ -170,10 +173,10 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
     set({ skills })
   },
 
-  generateTestReply: async (skillId, testMessage) => {
-    set({ testReplyResult: null, isLoading: true })
-    const result = await api()?.generateTestReply(skillId, testMessage)
-    set({ testReplyResult: result || '', isLoading: false })
+  generateTestReply: async (skillId, modelId, testMessage) => {
+    set({ testReplyResult: null, testReplyLatencyMs: undefined, isLoading: true })
+    const result = await api()?.generateTestReply(skillId, modelId, testMessage)
+    set({ testReplyResult: (result as any)?.content || result as string || '', testReplyLatencyMs: (result as any)?.latencyMs, isLoading: false })
   },
 
   setTriggerRules: async (rules) => {
@@ -338,5 +341,9 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
 
   setSelectedLogDetail: (log) => {
     set({ selectedLogDetail: log })
+  },
+
+  clearTestReply: () => {
+    set({ testReplyResult: null, testReplyLatencyMs: undefined })
   }
 }))

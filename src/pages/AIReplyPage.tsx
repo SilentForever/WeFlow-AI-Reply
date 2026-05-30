@@ -18,6 +18,7 @@ import SkillImportDialog from '../components/AIReply/SkillImportDialog'
 import DistillWizard from '../components/AIReply/DistillWizard'
 import SkillDetailEditor from '../components/AIReply/SkillDetailEditor'
 import LogDetailDialog from '../components/AIReply/LogDetailDialog'
+import AddModelModal from '../components/AIReply/AddModelModal'
 import './AIReplyPage.scss'
 
 type TabId = 'dashboard' | 'models' | 'skills' | 'triggers' | 'logs'
@@ -207,21 +208,17 @@ function DashboardTab() {
 
 function ModelsTab() {
   const store = useAIReplyStore()
-  const [showAddModel, setShowAddModel] = useState(false)
+  const [showAddModal, setShowAddModal] = useState(false)
 
   return (
     <div className="models-tab">
       <div className="section-header">
         <h3>模型配置</h3>
-        <button className="btn btn-primary" onClick={() => setShowAddModel(!showAddModel)}>
-          {showAddModel ? <XCircle size={16} /> : <Plus size={16} />}
-          {showAddModel ? '取消' : '添加模型'}
+        <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
+          <Plus size={16} />
+          添加模型
         </button>
       </div>
-
-      {showAddModel && (
-        <AddModelForm onClose={() => setShowAddModel(false)} />
-      )}
 
       <div className="model-list">
         {store.models.length === 0 ? (
@@ -244,6 +241,8 @@ function ModelsTab() {
           ))
         )}
       </div>
+
+      <AddModelModal open={showAddModal} onClose={() => setShowAddModal(false)} />
     </div>
   )
 }
@@ -304,109 +303,14 @@ function ModelCard({
   )
 }
 
-function AddModelForm({ onClose }: { onClose: () => void }) {
-  const store = useAIReplyStore()
-  const [type, setType] = useState<ModelType>('ollama')
-  const [name, setName] = useState('')
-  const [baseUrl, setBaseUrl] = useState('http://localhost:11434')
-  const [apiKey, setApiKey] = useState('')
-  const [model, setModel] = useState('deepseek-r1:7b')
-  const [temperature, setTemperature] = useState(0.7)
-  const [maxTokens, setMaxTokens] = useState(2048)
-
-  const handleSubmit = async () => {
-    if (!name || !model) return
-
-    let config: any
-    if (type === 'ollama') {
-      config = { baseUrl, model, temperature, maxTokens }
-    } else {
-      config = { apiKey, baseUrl, model, temperature, maxTokens }
-    }
-
-    const modelConfig: ModelConfig = {
-      id: `${type}-${Date.now()}`,
-      name,
-      type,
-      enabled: true,
-      config
-    }
-
-    await store.addModel(modelConfig)
-    onClose()
-  }
-
-  return (
-    <div className="add-model-form">
-      <div className="form-group">
-        <label>模型类型</label>
-        <select value={type} onChange={e => {
-          const t = e.target.value as ModelType
-          setType(t)
-          if (t === 'ollama') setBaseUrl('http://localhost:11434')
-          else if (t === 'openai') setBaseUrl('https://api.openai.com/v1')
-          else if (t === 'claude') setBaseUrl('https://api.anthropic.com/v1')
-          else if (t === 'gemini') setBaseUrl('https://generativelanguage.googleapis.com/v1beta')
-          else setBaseUrl('')
-        }}>
-          <option value="ollama">Ollama (本地)</option>
-          <option value="openai">OpenAI 兼容</option>
-          <option value="claude">Claude</option>
-          <option value="gemini">Gemini</option>
-          <option value="custom">自定义 API</option>
-        </select>
-      </div>
-      <div className="form-group">
-        <label>名称</label>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="例如: DeepSeek R1" />
-      </div>
-      <div className="form-group">
-        <label>API 地址</label>
-        <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
-          placeholder={type === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1'} />
-      </div>
-      {type !== 'ollama' && type !== 'custom' && (
-        <div className="form-group">
-          <label>API Key</label>
-          <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-..." />
-        </div>
-      )}
-      <div className="form-group">
-        <label>模型名称</label>
-        <ModelSelector
-          type={type}
-          baseUrl={baseUrl}
-          apiKey={apiKey}
-          value={model}
-          onChange={setModel}
-        />
-      </div>
-      <div className="form-row">
-        <div className="form-group">
-          <label>Temperature</label>
-          <input type="number" min="0" max="2" step="0.1" value={temperature}
-            onChange={e => setTemperature(parseFloat(e.target.value))} />
-        </div>
-        <div className="form-group">
-          <label>Max Tokens</label>
-          <input type="number" min="1" max="32768" value={maxTokens}
-            onChange={e => setMaxTokens(parseInt(e.target.value))} />
-        </div>
-      </div>
-      <div className="form-actions">
-        <button className="btn" onClick={onClose}>取消</button>
-        <button className="btn btn-primary" onClick={handleSubmit}>添加</button>
-      </div>
-    </div>
-  )
-}
-
 function SkillsTab() {
   const store = useAIReplyStore()
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showDistillWizard, setShowDistillWizard] = useState(false)
   const [showDetailEditor, setShowDetailEditor] = useState(false)
   const [testMessage, setTestMessage] = useState('')
+  const [testSkillId, setTestSkillId] = useState(store.activeSkillId)
+  const [testModelId, setTestModelId] = useState(store.activeModelId)
 
   const handleImported = (skill: Skill) => {
     store.fetchSkills()
@@ -428,8 +332,8 @@ function SkillsTab() {
   }
 
   const handleTest = async () => {
-    if (!testMessage) return
-    await store.generateTestReply(store.activeSkillId, testMessage)
+    if (!testMessage.trim()) return
+    await store.generateTestReply(testSkillId, testModelId, testMessage)
   }
 
   if (showDetailEditor && store.editingSkill) {
@@ -457,6 +361,65 @@ function SkillsTab() {
             <RefreshCw size={16} /> 刷新
           </button>
         </div>
+      </div>
+
+      <div className="test-section">
+        <h4><TestTube size={16} /> 测试回复</h4>
+        <div className="test-config">
+          <div className="test-select-row">
+            <div className="test-select-group">
+              <label>角色</label>
+              <select value={testSkillId} onChange={e => setTestSkillId(e.target.value)}>
+                {store.skills.map(skill => (
+                  <option key={skill.id} value={skill.id}>{skill.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="test-select-group">
+              <label>模型</label>
+              <select value={testModelId} onChange={e => setTestModelId(e.target.value)}>
+                {store.models.length === 0 ? (
+                  <option value="">暂无模型</option>
+                ) : (
+                  store.models.map(model => (
+                    <option key={model.id} value={model.id}>{model.name}</option>
+                  ))
+                )}
+              </select>
+            </div>
+          </div>
+          <div className="test-input">
+            <input
+              value={testMessage}
+              onChange={e => setTestMessage(e.target.value)}
+              placeholder="输入测试消息..."
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleTest() } }}
+            />
+            <button className="btn btn-primary" onClick={handleTest}
+              disabled={!testMessage.trim() || store.isLoading || !testModelId}>
+              {store.isLoading ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+              发送
+            </button>
+          </div>
+        </div>
+        {store.testReplyResult && (
+          <div className="test-reply-result">
+            <div className="test-reply-meta">
+              <span className="meta-item"><UserCircle size={12} /> {store.skills.find(s => s.id === testSkillId)?.name || '未知角色'}</span>
+              <span className="meta-item"><Brain size={12} /> {store.models.find(m => m.id === testModelId)?.name || '未知模型'}</span>
+              {store.testReplyLatencyMs != null && (
+                <span className="meta-item"><Activity size={12} /> {store.testReplyLatencyMs}ms</span>
+              )}
+            </div>
+            <div className="test-reply-content">
+              <Sparkles size={16} className="reply-icon" />
+              <p>{store.testReplyResult}</p>
+            </div>
+            <button className="btn btn-sm test-clear-btn" onClick={() => store.clearTestReply()}>
+              清空
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="skill-list">
@@ -497,28 +460,6 @@ function SkillsTab() {
             </div>
           </div>
         ))}
-      </div>
-
-      <div className="test-section">
-        <h4>测试回复</h4>
-        <div className="test-input">
-          <input
-            value={testMessage}
-            onChange={e => setTestMessage(e.target.value)}
-            placeholder="输入测试消息..."
-          />
-          <button className="btn btn-primary" onClick={handleTest}
-            disabled={!testMessage || store.isLoading}>
-            {store.isLoading ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
-            发送
-          </button>
-        </div>
-        {store.testReplyResult && (
-          <div className="test-result">
-            <Sparkles size={16} />
-            <p>{store.testReplyResult}</p>
-          </div>
-        )}
       </div>
 
       <SkillImportDialog

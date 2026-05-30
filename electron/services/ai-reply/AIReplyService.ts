@@ -181,12 +181,13 @@ export class AIReplyService extends EventEmitter {
     return adapter.testConnection()
   }
 
-  async generateTestReply(skillId: string, testMessage: string): Promise<string> {
+  async generateTestReply(skillId: string, modelId: string, testMessage: string): Promise<{ content: string; latencyMs?: number }> {
     const skill = this.skillEngine.getSkill(skillId) || this.skillEngine.getSkill('default-assistant')
-    if (!skill) return '未找到角色'
+    if (!skill) return { content: '未找到角色' }
 
-    const adapter = this.modelAdapters.get(this.activeModelId)
-    if (!adapter) return '未配置模型'
+    const targetModelId = modelId || this.activeModelId
+    const adapter = this.modelAdapters.get(targetModelId)
+    if (!adapter) return { content: '未配置模型' }
 
     const systemPrompt = this.skillEngine.generateSystemPrompt(skill)
     const messages = [
@@ -195,10 +196,12 @@ export class AIReplyService extends EventEmitter {
     ]
 
     try {
+      const start = Date.now()
       const result = await adapter.generate(messages)
-      return result.content
+      const latencyMs = Date.now() - start
+      return { content: result.content, latencyMs }
     } catch (error) {
-      return `生成失败: ${error instanceof Error ? error.message : String(error)}`
+      return { content: `生成失败: ${error instanceof Error ? error.message : String(error)}` }
     }
   }
 

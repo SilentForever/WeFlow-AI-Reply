@@ -621,7 +621,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setActiveSkill: (skillId: string) => ipcRenderer.invoke('aiReply:setActiveSkill', skillId),
     getSkills: () => ipcRenderer.invoke('aiReply:getSkills'),
     reloadSkills: () => ipcRenderer.invoke('aiReply:reloadSkills'),
-    generateTestReply: (skillId: string, testMessage: string) => ipcRenderer.invoke('aiReply:generateTestReply', skillId, testMessage),
+    generateTestReply: (skillId: string, modelId: string, testMessage: string) => ipcRenderer.invoke('aiReply:generateTestReply', skillId, modelId, testMessage),
     setTriggerRules: (rules: any) => ipcRenderer.invoke('aiReply:setTriggerRules', rules),
     getTriggerRules: () => ipcRenderer.invoke('aiReply:getTriggerRules'),
     setContactSkillMapping: (contactId: string, skillId: string) => ipcRenderer.invoke('aiReply:setContactSkillMapping', contactId, skillId),

@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { X, ChevronRight, ChevronLeft, Loader2, CheckCircle2, Search } from 'lucide-react'
+import { useAIReplyStore } from '../../stores/aiReplyStore'
 import ContactPicker from './ContactPicker'
 import TimeRangeSlider from './TimeRangeSlider'
 import ModelSelector from './ModelSelector'
-import type { Skill, DistillProgress, ModelType } from '../../types/ai-reply'
+import type { Skill, DistillProgress, ModelType, ModelConfig } from '../../types/ai-reply'
 import './DistillWizard.scss'
 
 interface DistillWizardProps {
@@ -22,11 +23,14 @@ const STEPS = [
 ]
 
 export default function DistillWizard({ open, onClose, onCompleted }: DistillWizardProps) {
+  const store = useAIReplyStore()
   const [step, setStep] = useState<WizardStep>(1)
   const [selectedContactIds, setSelectedContactIds] = useState<string[]>([])
   const [messageLimit, setMessageLimit] = useState(500)
   const [useTimeRange, setUseTimeRange] = useState(false)
   const [timeRange, setTimeRange] = useState<[number, number]>([0, 23])
+  const [useExistingModel, setUseExistingModel] = useState(true)
+  const [selectedModelId, setSelectedModelId] = useState('')
   const [modelType, setModelType] = useState<ModelType>('openai')
   const [modelBaseUrl, setModelBaseUrl] = useState('https://api.openai.com/v1')
   const [modelApiKey, setModelApiKey] = useState('')
@@ -38,6 +42,26 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
   const [taskId, setTaskId] = useState('')
   const [error, setError] = useState('')
   const [completedSkill, setCompletedSkill] = useState<Skill | null>(null)
+
+  useEffect(() => {
+    if (store.models.length > 0 && !selectedModelId) {
+      const active = store.models.find(m => m.id === store.activeModelId)
+      setSelectedModelId(active ? active.id : store.models[0].id)
+    }
+  }, [store.models, store.activeModelId, selectedModelId])
+
+  const getSelectedModelConfig = (): { type: ModelType; baseUrl: string; apiKey: string; model: string } | null => {
+    if (!useExistingModel || !selectedModelId) return null
+    const m = store.models.find(m => m.id === selectedModelId)
+    if (!m) return null
+    const cfg = m.config as any
+    return {
+      type: m.type,
+      baseUrl: cfg.baseUrl || '',
+      apiKey: cfg.apiKey || '',
+      model: cfg.model || ''
+    }
+  }
 
   const pollProgress = useCallback(async () => {
     if (!taskId) return
@@ -68,22 +92,57 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
   const canNext = () => {
     if (step === 1) return selectedContactIds.length > 0
     if (step === 2) return messageLimit > 0
-    if (step === 3) return !!modelName && !!skillName
+    if (step === 3) {
+      if (!skillName) return false
+      if (useExistingModel) return !!selectedModelId
+      return !!modelName
+    }
     return false
   }
 
   const handleStartDistill = async () => {
     setError('')
     try {
+      let finalModelType = modelType
+      let finalBaseUrl = modelBaseUrl
+      let finalApiKey = modelApiKey
+      let finalModelName = modelName
+
+      if (useExistingModel) {
+        const cfg = getSelectedModelConfig()
+        if (cfg) {
+          finalModelType = cfg.type
+          finalBaseUrl = cfg.baseUrl
+          finalApiKey = cfg.apiKey
+          finalModelName = cfg.model
+        }
+      } else {
+        if (!store.activeModelId || store.models.length === 0) {
+          const newModel: ModelConfig = {
+            id: `${modelType}-${Date.now()}`,
+            name: `${skillName} - 蒸馏模型`,
+            type: modelType,
+            enabled: true,
+            config: modelType === 'ollama'
+              ? { baseUrl: modelBaseUrl, model: modelName, temperature: 0.7, maxTokens: 2048 }
+              : { apiKey: modelApiKey, baseUrl: modelBaseUrl, model: modelName, temperature: 0.7, maxTokens: 2048 }
+          }
+          await store.addModel(newModel)
+          if (!store.activeModelId) {
+            await store.setActiveModel(newModel.id)
+          }
+        }
+      }
+
       const id = await window.electronAPI?.aiReply?.startDistill({
         contactIds: selectedContactIds,
         messageLimit,
         useTimeRange,
         timeRange: useTimeRange ? timeRange : undefined,
-        modelType,
-        modelBaseUrl,
-        modelApiKey,
-        modelName,
+        modelType: finalModelType,
+        modelBaseUrl: finalBaseUrl,
+        modelApiKey: finalApiKey,
+        modelName: finalModelName,
         depth: distillDepth,
         dimensions: distillDimensions,
         skillName
@@ -181,35 +240,61 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
           {step === 3 && (
             <div className="step-content">
               <div className="step-title">蒸馏配置</div>
-              <div className="form-group">
-                <label>模型类型</label>
-                <select value={modelType} onChange={e => setModelType(e.target.value as ModelType)}>
-                  <option value="ollama">Ollama</option>
-                  <option value="openai">OpenAI 兼容</option>
-                  <option value="claude">Claude</option>
-                  <option value="gemini">Gemini</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label>API 地址</label>
-                <input value={modelBaseUrl} onChange={e => setModelBaseUrl(e.target.value)} />
-              </div>
-              {modelType !== 'ollama' && (
+
+              {store.models.length > 0 && (
                 <div className="form-group">
-                  <label>API Key</label>
-                  <input type="password" value={modelApiKey} onChange={e => setModelApiKey(e.target.value)} />
+                  <label className="toggle-label-row">
+                    <span>使用已配置模型</span>
+                    <input type="checkbox" checked={useExistingModel} onChange={e => setUseExistingModel(e.target.checked)} />
+                  </label>
                 </div>
               )}
-              <div className="form-group">
-                <label>模型名称</label>
-                <ModelSelector
-                  type={modelType}
-                  baseUrl={modelBaseUrl}
-                  apiKey={modelApiKey}
-                  value={modelName}
-                  onChange={setModelName}
-                />
-              </div>
+
+              {useExistingModel && store.models.length > 0 ? (
+                <div className="form-group">
+                  <label>选择模型</label>
+                  <select value={selectedModelId} onChange={e => setSelectedModelId(e.target.value)}>
+                    {store.models.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} ({m.type})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <>
+                  <div className="form-group">
+                    <label>模型类型</label>
+                    <select value={modelType} onChange={e => setModelType(e.target.value as ModelType)}>
+                      <option value="ollama">Ollama</option>
+                      <option value="openai">OpenAI 兼容</option>
+                      <option value="claude">Claude</option>
+                      <option value="gemini">Gemini</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>API 地址</label>
+                    <input value={modelBaseUrl} onChange={e => setModelBaseUrl(e.target.value)} />
+                  </div>
+                  {modelType !== 'ollama' && (
+                    <div className="form-group">
+                      <label>API Key</label>
+                      <input type="password" value={modelApiKey} onChange={e => setModelApiKey(e.target.value)} />
+                    </div>
+                  )}
+                  <div className="form-group">
+                    <label>模型名称</label>
+                    <ModelSelector
+                      type={modelType}
+                      baseUrl={modelBaseUrl}
+                      apiKey={modelApiKey}
+                      value={modelName}
+                      onChange={setModelName}
+                    />
+                  </div>
+                </>
+              )}
+
               <div className="form-row">
                 <div className="form-group">
                   <label>蒸馏深度</label>
