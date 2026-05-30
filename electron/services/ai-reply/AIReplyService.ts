@@ -47,6 +47,10 @@ export class AIReplyService extends EventEmitter {
     this.distillService = new DistillService()
     this.logsFilePath = join(skillsDir, '..', 'reply-logs.json')
     this.loadLogsFromDisk()
+
+    this.distillService.on('progress', (progress: any) => {
+      this.emit('distillProgress', progress)
+    })
   }
 
   private loadLogsFromDisk(): void {

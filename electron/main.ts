@@ -1916,6 +1916,9 @@ function registerIpcHandlers() {
   aiReplyService.on('messageReceived', (message: any) => {
     aiReplySender('aiReply:messageReceived', message)
   })
+  aiReplyService.on('distillProgress', (progress: any) => {
+    aiReplySender('aiReply:distillProgress', progress)
+  })
 
   ipcMain.handle('aiReply:start', async () => {
     try { await aiReplyService.start(); return { success: true } }
