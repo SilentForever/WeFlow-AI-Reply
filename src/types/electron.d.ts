@@ -1285,6 +1285,10 @@ export interface ElectronAPI {
       currentItemLabel?: string
     }) => void) => () => void
   }
+  process: {
+    platform: string
+    arch: string
+  }
   cloud: {
     init: () => Promise<void>
     recordPage: (pageName: string) => Promise<void>
@@ -1329,9 +1333,10 @@ export interface ElectronAPI {
     getStatus: () => Promise<string>
     getConfig: () => Promise<Record<string, unknown>>
     setConfig: (config: unknown) => Promise<{ success: boolean }>
-    addModel: (modelConfig: unknown) => Promise<{ success: boolean }>
+    addModel: (modelConfig: unknown) => Promise<{ success: boolean; error?: string }>
     removeModel: (modelId: string) => Promise<{ success: boolean }>
     setActiveModel: (modelId: string) => Promise<{ success: boolean }>
+    getActiveModelId: () => Promise<string>
     testModel: (modelId: string) => Promise<{ success: boolean; message: string; latencyMs?: number }>
     getModels: () => Promise<unknown[]>
     addSkill: (skill: unknown) => Promise<{ success: boolean }>
@@ -1342,6 +1347,8 @@ export interface ElectronAPI {
     generateTestReply: (skillId: string, modelId: string, testMessage: string) => Promise<{ content: string; latencyMs?: number } | string>
     setTriggerRules: (rules: unknown) => Promise<{ success: boolean }>
     getTriggerRules: () => Promise<Record<string, unknown>>
+    setAutoReply: (enabled: boolean) => Promise<{ success: boolean }>
+    getAutoReply: () => Promise<boolean>
     setContactSkillMapping: (contactId: string, skillId: string) => Promise<{ success: boolean }>
     removeContactSkillMapping: (contactId: string) => Promise<{ success: boolean }>
     getContactSkillMappings: () => Promise<unknown[]>
@@ -1359,12 +1366,12 @@ export interface ElectronAPI {
     updateSkill: (id: string, skill: unknown) => Promise<unknown>
     exportSkill: (id: string) => Promise<string>
     getSkillDetail: (id: string) => Promise<unknown>
-    startDistill: (params: unknown) => Promise<string>
+    startDistill: (params: unknown) => Promise<string | { error: string }>
     cancelDistill: (taskId: string) => Promise<void>
     getDistillProgress: (taskId: string) => Promise<unknown>
     getDistillResult: (taskId: string) => Promise<unknown>
     saveDistillSkill: (taskId: string, override?: unknown) => Promise<unknown>
-    fetchChatRecords: (contactId: string, limit: number, startDate?: number, endDate?: number) => Promise<unknown[]>
+    fetchChatRecords: (contactId: string, limit: number, startDate?: string, endDate?: string) => Promise<unknown[]>
     estimateDistillCost: (contactId: string, messageLimit: number, depth: number) => Promise<{ tokenEstimate: number; feeEstimate: number }>
     getWeFlowAPIConfig: () => Promise<{ baseUrl: string; accessToken: string }>
     searchContacts: (keyword: string, limit?: number) => Promise<unknown[]>

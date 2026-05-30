@@ -16,7 +16,13 @@ export class MessageDeduper {
   }
 
   isDuplicate(msgId: string): boolean {
-    return this.processed.has(msgId)
+    const entry = this.processed.get(msgId)
+    if (!entry) return false
+    if (Date.now() - entry.processedAt > this.ttlMs) {
+      this.processed.delete(msgId)
+      return false
+    }
+    return true
   }
 
   markProcessed(msgId: string, contentHash?: string): void {

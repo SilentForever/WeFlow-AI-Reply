@@ -52,7 +52,7 @@ export class DistillService extends EventEmitter {
     this.emit('progress', progress)
 
     try {
-      const rawRecords = await this.fetchChatRecords(contactId, 5000)
+      const rawRecords = await this.fetchChatRecords(contactId, config.messageLimit || 5000)
       const preprocessed = this.preprocessMessages(rawRecords)
 
       progress.status = 'distilling'
@@ -182,7 +182,7 @@ export class DistillService extends EventEmitter {
       { role: 'user' as const, content: prompt }
     ]
 
-    const result = await adapter.generate(messages)
+    const result = await adapter.generate(messages, { maxTokens: 4096 })
 
     try {
       const jsonMatch = result.content.match(/\{[\s\S]*\}/)

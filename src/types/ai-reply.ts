@@ -166,6 +166,7 @@ export interface WeChatMessage {
   contactName: string
   content: string
   isGroup: boolean
+  isSend?: boolean
   senderId?: string
   senderName?: string
   timestamp: number
@@ -264,6 +265,7 @@ export interface DistillConfig {
   dimensions: ('expressionDNA' | 'mentalModels' | 'decisionHeuristics' | 'valuesAndAntiPatterns' | 'honestyBoundaries' | 'emotionalPatterns')[]
   skillName: string
   skillDescription: string
+  messageLimit?: number
 }
 
 export interface ChatRecord {

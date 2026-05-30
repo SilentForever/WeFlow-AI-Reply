@@ -9,6 +9,7 @@ import { ContextManager } from './core/ContextManager'
 import { TriggerEngine } from './core/TriggerEngine'
 import { MessageDeduper } from './core/MessageDeduper'
 import { DistillService } from './distill/DistillService'
+import { WeChatSender } from './core/WeChatSender'
 
 export interface AIReplyServiceEvents {
   statusChanged: (status: string) => void
@@ -28,14 +29,18 @@ export class AIReplyService extends EventEmitter {
   private triggerEngine: TriggerEngine
   private messageDeduper: MessageDeduper
   private replyLogs: ReplyLog[] = []
+  private maxReplyLogs: number = 5000
   private dailyStats: DailyStats = { receivedCount: 0, repliedCount: 0, activeContacts: 0, errorCount: 0 }
   private activeContactsToday: Set<string> = new Set()
   private sseConnection: EventSource | null = null
-  private sseUrl: string = 'http://127.0.0.1:5031/api/v1/push/messages'
+  private sseUrl: string = ''
   private accessToken: string = ''
   private distillService: DistillService
+  private wechatSender: WeChatSender
+  private autoReplyEnabled: boolean = false
   private logsFilePath: string
   private skillsDir: string
+  private processingContacts: Set<string> = new Set()
 
   constructor(skillsDir: string) {
     super()
@@ -45,6 +50,7 @@ export class AIReplyService extends EventEmitter {
     this.triggerEngine = new TriggerEngine(DEFAULT_TRIGGER_RULES)
     this.messageDeduper = new MessageDeduper()
     this.distillService = new DistillService()
+    this.wechatSender = new WeChatSender()
     this.logsFilePath = join(skillsDir, '..', 'reply-logs.json')
     this.loadLogsFromDisk()
 
@@ -69,6 +75,9 @@ export class AIReplyService extends EventEmitter {
 
   private saveLogsToDisk(): void {
     try {
+      if (this.replyLogs.length > this.maxReplyLogs) {
+        this.replyLogs = this.replyLogs.slice(-this.maxReplyLogs)
+      }
       const dir = join(this.logsFilePath, '..')
       if (!existsSync(dir)) {
         mkdirSync(dir, { recursive: true })
@@ -132,6 +141,7 @@ export class AIReplyService extends EventEmitter {
       }
     } catch (error) {
       console.error('[AIReplyService] Failed to create adapter:', error)
+      this.modelAdapters.delete(modelConfig.id)
     }
   }
 
@@ -187,9 +197,22 @@ export class AIReplyService extends EventEmitter {
     return this.triggerEngine.getRules()
   }
 
+  setAutoReplyEnabled(enabled: boolean): void {
+    this.autoReplyEnabled = enabled
+    this.wechatSender.setEnabled(enabled)
+  }
+
+  isAutoReplyEnabled(): boolean {
+    return this.autoReplyEnabled
+  }
+
   setSSEConfig(url: string, accessToken: string): void {
     this.sseUrl = url
     this.accessToken = accessToken
+  }
+
+  setSelfNickname(name: string): void {
+    this.triggerEngine.setSelfNickname(name)
   }
 
   getSkillEngine(): SkillEngine {
@@ -227,6 +250,15 @@ export class AIReplyService extends EventEmitter {
     }
   }
 
+  setDailyStats(stats: DailyStats): void {
+    this.dailyStats = {
+      receivedCount: stats.receivedCount || 0,
+      repliedCount: stats.repliedCount || 0,
+      activeContacts: 0,
+      errorCount: stats.errorCount || 0
+    }
+  }
+
   async testModelConnection(modelId: string): Promise<any> {
     const adapter = this.modelAdapters.get(modelId)
     if (!adapter) {
@@ -251,7 +283,9 @@ export class AIReplyService extends EventEmitter {
 
     try {
       const start = Date.now()
-      const result = await adapter.generate(messages)
+      const result = await adapter.generate(messages, {
+        maxTokens: skill.replyStrategy.maxReplyLength
+      })
       const latencyMs = Date.now() - start
       return { content: result.content, latencyMs }
     } catch (error) {
@@ -265,110 +299,148 @@ export class AIReplyService extends EventEmitter {
     if (this.messageDeduper.isDuplicate(message.msgId)) return
     this.messageDeduper.markProcessed(message.msgId, message.content)
 
+    if (message.isSend || message.type === 10000) {
+      return
+    }
+
+    if (this.processingContacts.has(message.contactId)) {
+      return
+    }
+    this.processingContacts.add(message.contactId)
+
     this.dailyStats.receivedCount++
     this.activeContactsToday.add(message.contactId)
     this.emit('messageReceived', message)
 
-    const triggerResult = this.triggerEngine.shouldReply(message)
-    if (!triggerResult.shouldReply) return
-
-    const skillId = this.contactSkillMappings.get(message.contactId) || this.activeSkillId
-    const skill = this.skillEngine.getSkill(skillId)
-    if (!skill) return
-
-    const adapter = this.modelAdapters.get(this.activeModelId)
-    if (!adapter) {
-      this.emit('replyError', { contactId: message.contactId, error: '未配置模型' })
-      return
-    }
-
-    const startTime = Date.now()
-
     try {
-      const context = this.contextManager.getHistory(message.contactId)
-      const relationship = skill.selfMemory.relationships.find(
-        r => r.contactId === message.contactId
-      )
+      const triggerResult = this.triggerEngine.shouldReply(message)
+      if (!triggerResult.shouldReply) return
 
-      const systemPrompt = this.skillEngine.generateSystemPrompt(skill, {
-        recentMessages: context.slice(-5),
-        relationship
-      })
+      const skillId = this.contactSkillMappings.get(message.contactId) || this.activeSkillId
+      const skill = this.skillEngine.getSkill(skillId)
+      if (!skill) return
 
-      const messages = [
-        { role: 'system' as const, content: systemPrompt },
-        ...context,
-        { role: 'user' as const, content: message.content }
-      ]
-
-      const result = await adapter.generate(messages)
-
-      this.contextManager.addMessage(message.contactId, {
-        role: 'user',
-        content: message.content,
-        timestamp: message.timestamp
-      })
-      this.contextManager.addMessage(message.contactId, {
-        role: 'assistant',
-        content: result.content,
-        timestamp: Date.now()
-      })
-
-      const latencyMs = Date.now() - startTime
-      const log: ReplyLog = {
-        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        timestamp: Date.now(),
-        contactId: message.contactId,
-        contactName: message.contactName,
-        receivedMessage: message.content,
-        generatedReply: result.content,
-        skillId: skill.id,
-        skillName: skill.name,
-        modelId: this.activeModelId,
-        modelName: adapter.getModelInfo().name,
-        latencyMs,
-        success: true
+      const adapter = this.modelAdapters.get(this.activeModelId)
+      if (!adapter) {
+        this.emit('replyError', { contactId: message.contactId, error: '未配置模型' })
+        return
       }
 
-      this.replyLogs.push(log)
-      this.saveLogsToDisk()
-      this.dailyStats.repliedCount++
-      this.emit('replySent', log)
+      const startTime = Date.now()
 
-      if (skill.replyStrategy.responseDelay.min > 0) {
-        const delay = Math.random() *
-          (skill.replyStrategy.responseDelay.max - skill.replyStrategy.responseDelay.min) +
-          skill.replyStrategy.responseDelay.min
-        await new Promise(resolve => setTimeout(resolve, delay))
+      try {
+        const { messages: context, summary } = this.contextManager.getContextWithSummary(message.contactId)
+        const relationship = skill.selfMemory.relationships.find(
+          r => r.contactId === message.contactId
+        )
+
+        const systemPrompt = this.skillEngine.generateSystemPrompt(skill, {
+          recentMessages: context.slice(-5),
+          relationship,
+          contextSummary: summary
+        })
+
+        const messages = [
+          { role: 'system' as const, content: systemPrompt },
+          ...context,
+          { role: 'user' as const, content: message.content }
+        ]
+
+        const result = await adapter.generate(messages, {
+          maxTokens: skill.replyStrategy.maxReplyLength
+        })
+
+        this.contextManager.addMessage(message.contactId, {
+          role: 'user',
+          content: message.content,
+          timestamp: message.timestamp
+        })
+        this.contextManager.addMessage(message.contactId, {
+          role: 'assistant',
+          content: result.content,
+          timestamp: Date.now()
+        })
+
+        const latencyMs = Date.now() - startTime
+        const log: ReplyLog = {
+          id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          timestamp: Date.now(),
+          contactId: message.contactId,
+          contactName: message.contactName,
+          receivedMessage: message.content,
+          generatedReply: result.content,
+          skillId: skill.id,
+          skillName: skill.name,
+          modelId: this.activeModelId,
+          modelName: adapter.getModelInfo().name,
+          latencyMs,
+          success: true
+        }
+
+        this.replyLogs.push(log)
+        this.saveLogsToDisk()
+        this.dailyStats.repliedCount++
+        this.emit('replySent', log)
+
+        if (skill.replyStrategy.responseDelay.min > 0) {
+          const delay = Math.random() *
+            (skill.replyStrategy.responseDelay.max - skill.replyStrategy.responseDelay.min) +
+            skill.replyStrategy.responseDelay.min
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+
+        if (this.autoReplyEnabled && this.wechatSender.isEnabled()) {
+          try {
+            const sendResult = await this.wechatSender.sendTextMessage(
+              message.contactId,
+              message.contactName,
+              result.content
+            )
+            if (!sendResult.success) {
+              console.warn('[AIReplyService] Failed to send message:', sendResult.error)
+              this.emit('replyError', { contactId: message.contactId, error: `消息发送失败: ${sendResult.error}` })
+            }
+          } catch (sendErr: any) {
+            console.warn('[AIReplyService] Exception sending message:', sendErr)
+            this.emit('replyError', { contactId: message.contactId, error: `消息发送异常: ${sendErr.message}` })
+          }
+        }
+
+      } catch (error) {
+        const latencyMs = Date.now() - startTime
+        const log: ReplyLog = {
+          id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          timestamp: Date.now(),
+          contactId: message.contactId,
+          contactName: message.contactName,
+          receivedMessage: message.content,
+          generatedReply: '',
+          skillId: skill.id,
+          skillName: skill.name,
+          modelId: this.activeModelId,
+          modelName: '',
+          latencyMs,
+          success: false,
+          errorMessage: error instanceof Error ? error.message : String(error)
+        }
+
+        this.replyLogs.push(log)
+        this.saveLogsToDisk()
+        this.dailyStats.errorCount++
+        this.emit('replyError', { contactId: message.contactId, error: log.errorMessage || 'Unknown error' })
       }
-
-    } catch (error) {
-      const latencyMs = Date.now() - startTime
-      const log: ReplyLog = {
-        id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        timestamp: Date.now(),
-        contactId: message.contactId,
-        contactName: message.contactName,
-        receivedMessage: message.content,
-        generatedReply: '',
-        skillId: skill.id,
-        skillName: skill.name,
-        modelId: this.activeModelId,
-        modelName: '',
-        latencyMs,
-        success: false,
-        errorMessage: error instanceof Error ? error.message : String(error)
-      }
-
-      this.replyLogs.push(log)
-      this.saveLogsToDisk()
-      this.dailyStats.errorCount++
-      this.emit('replyError', { contactId: message.contactId, error: log.errorMessage || 'Unknown error' })
+    } finally {
+      this.processingContacts.delete(message.contactId)
     }
   }
 
   private connectSSE(): void {
     this.disconnectSSE()
+
+    if (!this.sseUrl) {
+      console.warn('[AIReplyService] SSE URL not configured, skipping connection')
+      return
+    }
 
     try {
       const url = new URL(this.sseUrl)
@@ -388,6 +460,7 @@ export class AIReplyService extends EventEmitter {
             contactName: data.sourceName || data.nickname || data.contactName || data.talkerName || '',
             content: data.content || data.text || '',
             isGroup,
+            isSend: Boolean(data.isSend ?? data.is_send ?? data.isMe ?? false),
             senderId: data.senderUsername || data.senderId || data.actualSender || '',
             senderName: data.sourceName || data.senderName || data.actualSenderName || '',
             timestamp: data.timestamp || data.createTime || Date.now(),
@@ -425,7 +498,9 @@ export class AIReplyService extends EventEmitter {
       enabled: true,
       config: modelType === 'ollama'
         ? { baseUrl, model: '', temperature: 0.7, maxTokens: 2048 }
-        : { apiKey: apiKey || '', baseUrl, model: '', temperature: 0.7, maxTokens: 2048 }
+        : modelType === 'custom'
+          ? { url: baseUrl, method: 'POST', headers: {}, bodyTemplate: {}, responsePath: '' }
+          : { apiKey: apiKey || '', baseUrl, model: '', temperature: 0.7, maxTokens: 2048 }
     }
 
     try {
@@ -457,10 +532,16 @@ export class AIReplyService extends EventEmitter {
   async startDistill(params: {
     contactId: string
     config: DistillConfig
+    modelId?: string
   }): Promise<string> {
-    const adapter = this.modelAdapters.get(this.activeModelId)
+    const targetModelId = params.modelId || this.activeModelId
+    const adapter = this.modelAdapters.get(targetModelId)
     if (!adapter) {
       throw new Error('No active model adapter configured')
+    }
+
+    if (!this.sseUrl) {
+      throw new Error('WeFlow API 未配置，请先在设置中启用 HTTP API')
     }
 
     this.distillService.setWeFlowConfig(this.sseUrl.replace('/api/v1/push/messages', ''), this.accessToken)

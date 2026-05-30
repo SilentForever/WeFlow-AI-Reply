@@ -27,6 +27,7 @@ export interface AIReplyState {
   logFilter: { status: string; contactId: string; keyword: string }
   editingSkill: Skill | null
   selectedLogDetail: ReplyLog | null
+  autoReplyEnabled: boolean
 
   start: () => Promise<void>
   pause: () => Promise<void>
@@ -60,7 +61,7 @@ export interface AIReplyState {
   importSkillFromDirectory: (dir: string) => Promise<Skill | null>
   importSkillFromZip: (path: string) => Promise<Skill | null>
   importSkillFromGit: (url: string) => Promise<Skill | null>
-  startDistill: (params: any) => Promise<string>
+  startDistill: (params: any) => Promise<string | { error: string }>
   cancelDistill: (taskId: string) => Promise<void>
   getDistillProgress: (taskId: string) => Promise<DistillProgress | null>
   saveDistillSkill: (taskId: string, override?: any) => Promise<Skill | null>
@@ -68,6 +69,8 @@ export interface AIReplyState {
   setLogFilter: (filter: Partial<{ status: string; contactId: string; keyword: string }>) => void
   setEditingSkill: (skill: Skill | null) => void
   setSelectedLogDetail: (log: ReplyLog | null) => void
+  setAutoReplyEnabled: (enabled: boolean) => Promise<void>
+  fetchAutoReplyEnabled: () => Promise<void>
   clearTestReply: () => void
   clearError: () => void
 }
@@ -95,6 +98,7 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   logFilter: { status: '', contactId: '', keyword: '' },
   editingSkill: null,
   selectedLogDetail: null,
+  autoReplyEnabled: false,
 
   start: async () => {
     set({ isLoading: true, error: null })
@@ -129,7 +133,8 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
 
   fetchModels: async () => {
     const models = (await api()?.getModels() || []) as ModelConfig[]
-    set({ models })
+    const activeModelId = await api()?.getActiveModelId() || ''
+    set({ models, activeModelId: activeModelId || get().activeModelId })
   },
 
   addModel: async (config) => {
@@ -369,6 +374,16 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
 
   setSelectedLogDetail: (log) => {
     set({ selectedLogDetail: log })
+  },
+
+  setAutoReplyEnabled: async (enabled) => {
+    await api()?.setAutoReply(enabled)
+    set({ autoReplyEnabled: enabled })
+  },
+
+  fetchAutoReplyEnabled: async () => {
+    const enabled = await api()?.getAutoReply()
+    if (typeof enabled === 'boolean') set({ autoReplyEnabled: enabled })
   },
 
   clearTestReply: () => {

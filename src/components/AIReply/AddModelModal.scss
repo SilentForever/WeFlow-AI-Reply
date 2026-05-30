@@ -74,7 +74,8 @@
       }
 
       input,
-      select {
+      select,
+      textarea {
         width: 100%;
         padding: 9px 12px;
         border: 1px solid var(--border-color);
@@ -84,6 +85,8 @@
         color: var(--text-primary);
         outline: none;
         transition: border-color 0.15s;
+        font-family: inherit;
+        resize: vertical;
 
         &:focus {
           border-color: var(--primary);

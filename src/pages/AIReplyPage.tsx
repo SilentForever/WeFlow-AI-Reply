@@ -7,7 +7,7 @@ import {
   MessageSquare, Zap, Users, Clock, Shield, ChevronRight,
   CheckCircle2, XCircle, Loader2, RefreshCw, Send, Sparkles,
   Brain, UserCircle, Activity, Search, Eye, Edit3, Download,
-  FolderDown, FlaskConical
+  FolderDown, FlaskConical, Pencil
 } from 'lucide-react'
 import ToggleSwitch from '../components/AIReply/ToggleSwitch'
 import TagInput from '../components/AIReply/TagInput'
@@ -42,6 +42,7 @@ export default function AIReplyPage() {
     store.fetchTriggerRules()
     store.fetchDailyStats()
     store.fetchReplyLogs()
+    store.fetchAutoReplyEnabled()
     const cleanup = store.setupListeners()
     return cleanup
   }, [])
@@ -187,6 +188,19 @@ function DashboardTab() {
           <h3><Zap size={16} /> 触发规则</h3>
           <p>{store.triggerRules.enabled ? `已启用 - ${store.triggerRules.listenMode}` : '未启用'}</p>
         </div>
+        <div className="info-section">
+          <h3><Send size={16} /> 自动回复发送</h3>
+          <div className="auto-reply-toggle">
+            <ToggleSwitch
+              checked={store.autoReplyEnabled}
+              onChange={(checked) => store.setAutoReplyEnabled(checked)}
+            />
+            <span className="toggle-label">{store.autoReplyEnabled ? '已开启' : '已关闭'}</span>
+          </div>
+          {store.autoReplyEnabled && window.electronAPI?.process?.platform !== 'win32' && (
+            <p className="warning-text">自动回复发送仅支持 Windows 系统</p>
+          )}
+        </div>
       </div>
 
       {store.replyLogs.length > 0 && (
@@ -225,12 +239,13 @@ function DashboardTab() {
 function ModelsTab() {
   const store = useAIReplyStore()
   const [showAddModal, setShowAddModal] = useState(false)
+  const [editModel, setEditModel] = useState<ModelConfig | null>(null)
 
   return (
     <div className="models-tab">
       <div className="section-header">
         <h3>模型配置</h3>
-        <button className="btn btn-primary" onClick={() => setShowAddModal(true)}>
+        <button className="btn btn-primary" onClick={() => { setEditModel(null); setShowAddModal(true) }}>
           <Plus size={16} />
           添加模型
         </button>
@@ -252,25 +267,27 @@ function ModelsTab() {
               onActivate={() => store.setActiveModel(model.id)}
               onRemove={() => store.removeModel(model.id)}
               onTest={() => store.testModel(model.id)}
+              onEdit={() => { setEditModel(model); setShowAddModal(true) }}
               testResult={store.testResult}
             />
           ))
         )}
       </div>
 
-      <AddModelModal open={showAddModal} onClose={() => setShowAddModal(false)} />
+      <AddModelModal open={showAddModal} onClose={() => { setShowAddModal(false); setEditModel(null) }} editModel={editModel} />
     </div>
   )
 }
 
 function ModelCard({
-  model, isActive, onActivate, onRemove, onTest, testResult
+  model, isActive, onActivate, onRemove, onTest, onEdit, testResult
 }: {
   model: ModelConfig
   isActive: boolean
   onActivate: () => void
   onRemove: () => void
   onTest: () => void
+  onEdit: () => void
   testResult: any
 }) {
   return (
@@ -299,6 +316,9 @@ function ModelCard({
             <CheckCircle2 size={14} /> 启用
           </button>
         )}
+        <button className="btn btn-sm" onClick={onEdit}>
+          <Pencil size={14} /> 编辑
+        </button>
         <button className="btn btn-sm" onClick={onTest}>
           <TestTube size={14} /> 测试
         </button>
@@ -341,7 +361,8 @@ function SkillsTab() {
     setShowDetailEditor(true)
   }
 
-  const handleSaveSkill = (skill: Skill) => {
+  const handleSaveSkill = async (skill: Skill) => {
+    await store.addSkill({ ...skill, updatedAt: Date.now() })
     store.setEditingSkill(null)
     setShowDetailEditor(false)
     store.fetchSkills()

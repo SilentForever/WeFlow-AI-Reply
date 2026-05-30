@@ -1,17 +1,19 @@
-import { useState } from 'react'
-import { X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { X, XCircle } from 'lucide-react'
 import { useAIReplyStore } from '../../stores/aiReplyStore'
-import type { ModelConfig, ModelType, OllamaConfig, OpenAICompatibleConfig } from '../../types/ai-reply'
+import type { ModelConfig, ModelType } from '../../types/ai-reply'
 import ModelSelector from './ModelSelector'
 import './AddModelModal.scss'
 
 interface AddModelModalProps {
   open: boolean
   onClose: () => void
+  editModel?: ModelConfig | null
 }
 
-export default function AddModelModal({ open, onClose }: AddModelModalProps) {
+export default function AddModelModal({ open, onClose, editModel }: AddModelModalProps) {
   const store = useAIReplyStore()
+  const isEdit = !!editModel
   const [type, setType] = useState<ModelType>('ollama')
   const [name, setName] = useState('')
   const [baseUrl, setBaseUrl] = useState('http://localhost:11434')
@@ -19,8 +21,47 @@ export default function AddModelModal({ open, onClose }: AddModelModalProps) {
   const [model, setModel] = useState('deepseek-r1:7b')
   const [temperature, setTemperature] = useState(0.7)
   const [maxTokens, setMaxTokens] = useState(2048)
+  const [customUrl, setCustomUrl] = useState('')
+  const [customMethod, setCustomMethod] = useState<'POST' | 'GET'>('POST')
+  const [customHeaders, setCustomHeaders] = useState('{}')
+  const [customBodyTemplate, setCustomBodyTemplate] = useState('{"messages":"${MESSAGES}","temperature":"${TEMPERATURE}","max_tokens":"${MAX_TOKENS}"}')
+  const [customResponsePath, setCustomResponsePath] = useState('choices.0.message.content')
   const [submitting, setSubmitting] = useState(false)
   const [addError, setAddError] = useState('')
+
+  useEffect(() => {
+    if (open && editModel) {
+      setType(editModel.type)
+      setName(editModel.name)
+      const cfg = editModel.config as any
+      setBaseUrl(cfg.baseUrl || '')
+      setApiKey(cfg.apiKey || '')
+      setModel(cfg.model || '')
+      setTemperature(cfg.temperature ?? 0.7)
+      setMaxTokens(cfg.maxTokens ?? 2048)
+      if (editModel.type === 'custom') {
+        setCustomUrl(cfg.url || '')
+        setCustomMethod(cfg.method || 'POST')
+        setCustomHeaders(cfg.headers ? JSON.stringify(cfg.headers) : '{}')
+        setCustomBodyTemplate(cfg.bodyTemplate ? JSON.stringify(cfg.bodyTemplate) : '{"messages":"${MESSAGES}","temperature":"${TEMPERATURE}","max_tokens":"${MAX_TOKENS}"}')
+        setCustomResponsePath(cfg.responsePath || 'choices.0.message.content')
+      }
+    } else if (open) {
+      setType('ollama')
+      setName('')
+      setBaseUrl('http://localhost:11434')
+      setApiKey('')
+      setModel('deepseek-r1:7b')
+      setTemperature(0.7)
+      setMaxTokens(2048)
+      setCustomUrl('')
+      setCustomMethod('POST')
+      setCustomHeaders('{}')
+      setCustomBodyTemplate('{"messages":"${MESSAGES}","temperature":"${TEMPERATURE}","max_tokens":"${MAX_TOKENS}"}')
+      setCustomResponsePath('choices.0.message.content')
+    }
+    setAddError('')
+  }, [open, editModel])
 
   if (!open) return null
 
@@ -32,12 +73,41 @@ export default function AddModelModal({ open, onClose }: AddModelModalProps) {
       let config: any
       if (type === 'ollama') {
         config = { baseUrl, model, temperature, maxTokens }
+      } else if (type === 'custom') {
+        let parsedHeaders = {}
+        let parsedBodyTemplate = {}
+        try {
+          parsedHeaders = JSON.parse(customHeaders)
+        } catch {
+          setAddError('请求头 JSON 格式错误')
+          setSubmitting(false)
+          return
+        }
+        try {
+          parsedBodyTemplate = JSON.parse(customBodyTemplate)
+        } catch {
+          setAddError('请求体模板 JSON 格式错误')
+          setSubmitting(false)
+          return
+        }
+        if (!customUrl.trim()) {
+          setAddError('自定义 API 地址不能为空')
+          setSubmitting(false)
+          return
+        }
+        config = {
+          url: customUrl.trim(),
+          method: customMethod,
+          headers: parsedHeaders,
+          bodyTemplate: parsedBodyTemplate,
+          responsePath: customResponsePath.trim()
+        }
       } else {
         config = { apiKey, baseUrl, model, temperature, maxTokens }
       }
 
       const modelConfig: ModelConfig = {
-        id: `${type}-${Date.now()}`,
+        id: isEdit ? editModel!.id : `${type}-${Date.now()}`,
         name: name.trim(),
         type,
         enabled: true,
@@ -51,13 +121,8 @@ export default function AddModelModal({ open, onClose }: AddModelModalProps) {
       }
 
       onClose()
-      setName('')
-      setApiKey('')
-      setModel('deepseek-r1:7b')
-      setTemperature(0.7)
-      setMaxTokens(2048)
     } catch (e: any) {
-      setAddError(e.message || '添加模型失败')
+      setAddError(e.message || (isEdit ? '编辑模型失败' : '添加模型失败'))
     } finally {
       setSubmitting(false)
     }
@@ -76,13 +141,14 @@ export default function AddModelModal({ open, onClose }: AddModelModalProps) {
     if (e.target === e.currentTarget) onClose()
   }
 
-  const canSubmit = name.trim() && model.trim() && !submitting
+  const canSubmit = name.trim() && !submitting &&
+    (type === 'custom' ? customUrl.trim() : model.trim())
 
   return (
     <div className="add-model-overlay" onClick={handleOverlayClick}>
       <div className="add-model-modal">
         <div className="modal-header">
-          <h3>添加模型</h3>
+          <h3>{isEdit ? '编辑模型' : '添加模型'}</h3>
           <button className="modal-close" onClick={onClose}>
             <X size={18} />
           </button>
@@ -91,7 +157,7 @@ export default function AddModelModal({ open, onClose }: AddModelModalProps) {
         <div className="modal-body">
           <div className="form-group">
             <label>模型类型</label>
-            <select value={type} onChange={e => handleTypeChange(e.target.value as ModelType)}>
+            <select value={type} onChange={e => handleTypeChange(e.target.value as ModelType)} disabled={isEdit}>
               <option value="ollama">Ollama (本地)</option>
               <option value="openai">OpenAI 兼容</option>
               <option value="claude">Claude</option>
@@ -108,22 +174,55 @@ export default function AddModelModal({ open, onClose }: AddModelModalProps) {
             <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
               placeholder={type === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1'} />
           </div>
+          {type === 'custom' && (
+            <>
+              <div className="form-group">
+                <label>自定义 API URL</label>
+                <input value={customUrl} onChange={e => setCustomUrl(e.target.value)}
+                  placeholder="https://your-api.com/v1/chat/completions" />
+              </div>
+              <div className="form-group">
+                <label>请求方法</label>
+                <select value={customMethod} onChange={e => setCustomMethod(e.target.value as 'POST' | 'GET')}>
+                  <option value="POST">POST</option>
+                  <option value="GET">GET</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>请求头 (JSON)</label>
+                <input value={customHeaders} onChange={e => setCustomHeaders(e.target.value)}
+                  placeholder='{"Authorization": "Bearer xxx", "Content-Type": "application/json"}' />
+              </div>
+              <div className="form-group">
+                <label>请求体模板 (JSON)</label>
+                <textarea value={customBodyTemplate} onChange={e => setCustomBodyTemplate(e.target.value)}
+                  rows={4} placeholder='{"messages": "${MESSAGES}", "temperature": "${TEMPERATURE}", "max_tokens": "${MAX_TOKENS}"}' />
+              </div>
+              <div className="form-group">
+                <label>响应路径</label>
+                <input value={customResponsePath} onChange={e => setCustomResponsePath(e.target.value)}
+                  placeholder="choices.0.message.content" />
+              </div>
+            </>
+          )}
           {type !== 'ollama' && type !== 'custom' && (
             <div className="form-group">
               <label>API Key</label>
               <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-..." />
             </div>
           )}
-          <div className="form-group">
-            <label>模型名称</label>
-            <ModelSelector
-              type={type}
-              baseUrl={baseUrl}
-              apiKey={apiKey}
-              value={model}
-              onChange={setModel}
-            />
-          </div>
+          {type !== 'custom' && (
+            <div className="form-group">
+              <label>模型名称</label>
+              <ModelSelector
+                type={type}
+                baseUrl={baseUrl}
+                apiKey={apiKey}
+                value={model}
+                onChange={setModel}
+              />
+            </div>
+          )}
           <div className="form-row">
             <div className="form-group">
               <label>Temperature</label>
@@ -148,7 +247,7 @@ export default function AddModelModal({ open, onClose }: AddModelModalProps) {
         <div className="modal-footer">
           <button className="btn" onClick={onClose}>取消</button>
           <button className="btn btn-primary" onClick={handleSubmit} disabled={!canSubmit}>
-            {submitting ? '添加中...' : '添加'}
+            {submitting ? (isEdit ? '保存中...' : '添加中...') : (isEdit ? '保存' : '添加')}
           </button>
         </div>
       </div>

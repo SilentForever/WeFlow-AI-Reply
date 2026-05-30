@@ -1870,6 +1870,27 @@ function registerIpcHandlers() {
   function loadAIReplyConfig() {
     const cfg = configService?.get('aiReplyConfig' as any) || {}
     modelConfigs = cfg.models || []
+
+    const httpApiEnabled = configService?.get('httpApiEnabled' as any)
+    const httpApiPort = configService?.get('httpApiPort' as any) || 5031
+    const httpApiHost = configService?.get('httpApiHost' as any) || '127.0.0.1'
+    const httpApiToken = configService?.get('httpApiToken' as any) || ''
+
+    if (httpApiEnabled) {
+      const sseUrl = `http://${httpApiHost}:${httpApiPort}/api/v1/push/messages`
+      aiReplyService.setSSEConfig(sseUrl, httpApiToken)
+
+      const profileUrl = `http://${httpApiHost}:${httpApiPort}/api/v1/profile`
+      fetch(profileUrl, {
+        headers: { 'Authorization': `Bearer ${httpApiToken}` }
+      }).then(res => res.json()).then((profileData: any) => {
+        const nickname = profileData.nickname || profileData.nickName || profileData.name || ''
+        if (nickname) {
+          aiReplyService.setSelfNickname(nickname)
+        }
+      }).catch(() => {})
+    }
+
     if (modelConfigs.length > 0) {
       modelConfigs.forEach(mc => {
         try { aiReplyService.setModelAdapter(mc) } catch {}
@@ -1877,20 +1898,37 @@ function registerIpcHandlers() {
       if (cfg.activeModelId && modelConfigs.find(m => m.id === cfg.activeModelId)) {
         aiReplyService.setActiveModel(cfg.activeModelId)
       }
-      if (cfg.activeSkillId) {
-        aiReplyService.setActiveSkill(cfg.activeSkillId)
-      }
-      if (cfg.triggerRules) {
-        aiReplyService.setTriggerRules(cfg.triggerRules)
+    }
+    if (cfg.activeSkillId) {
+      aiReplyService.setActiveSkill(cfg.activeSkillId)
+    }
+    if (cfg.triggerRules) {
+      aiReplyService.setTriggerRules(cfg.triggerRules)
+    }
+    if (cfg.autoReplyEnabled) {
+      aiReplyService.setAutoReplyEnabled(cfg.autoReplyEnabled)
+    }
+    if (cfg.dailyStats) {
+      aiReplyService.setDailyStats(cfg.dailyStats)
+    }
+
+    if (cfg.contactSkillMappings) {
+      for (const mapping of cfg.contactSkillMappings) {
+        aiReplyService.setContactSkillMapping(mapping.contactId, mapping.skillId)
       }
     }
+
+    aiReplyService.getSkillEngine().loadAllSkills().catch(() => {})
   }
   function saveAIReplyConfig() {
     const cfg = {
       models: modelConfigs,
       activeModelId: aiReplyService.getActiveModelId(),
       activeSkillId: aiReplyService.getActiveSkillId(),
-      triggerRules: aiReplyService.getTriggerRules()
+      triggerRules: aiReplyService.getTriggerRules(),
+      autoReplyEnabled: aiReplyService.isAutoReplyEnabled(),
+      contactSkillMappings: aiReplyService.getContactSkillMappings(),
+      dailyStats: aiReplyService.getDailyStats()
     }
     configService?.set('aiReplyConfig' as any, cfg)
   }
@@ -1929,11 +1967,11 @@ function registerIpcHandlers() {
   ipcMain.handle('aiReply:stop', async () => { aiReplyService.stop(); return { success: true } })
   ipcMain.handle('aiReply:getStatus', async () => aiReplyService.getStatus())
   ipcMain.handle('aiReply:getConfig', async () => {
-    const cfg = configService?.get('aiReply' as any) || {}
+    const cfg = configService?.get('aiReplyConfig' as any) || {}
     return cfg
   })
   ipcMain.handle('aiReply:setConfig', async (_, config: any) => {
-    configService?.set('aiReply' as any, config)
+    configService?.set('aiReplyConfig' as any, config)
     return { success: true }
   })
   ipcMain.handle('aiReply:getModels', async () => {
@@ -1965,15 +2003,21 @@ function registerIpcHandlers() {
     saveAIReplyConfig()
     return { success: true }
   })
+  ipcMain.handle('aiReply:getActiveModelId', async () => {
+    return aiReplyService.getActiveModelId()
+  })
   ipcMain.handle('aiReply:testModel', async (_, modelId: string) => {
     return aiReplyService.testModelConnection(modelId)
   })
   ipcMain.handle('aiReply:addSkill', async (_, skill: any) => {
     aiReplyService.getSkillEngine().addSkill(skill)
+    saveAIReplyConfig()
     return { success: true }
   })
   ipcMain.handle('aiReply:removeSkill', async (_, skillId: string) => {
-    return { success: aiReplyService.getSkillEngine().removeSkill(skillId) }
+    const result = aiReplyService.getSkillEngine().removeSkill(skillId)
+    if (result) saveAIReplyConfig()
+    return { success: result }
   })
   ipcMain.handle('aiReply:setActiveSkill', async (_, skillId: string) => {
     aiReplyService.setActiveSkill(skillId)
@@ -1997,12 +2041,22 @@ function registerIpcHandlers() {
   ipcMain.handle('aiReply:getTriggerRules', async () => {
     return aiReplyService.getTriggerRules()
   })
+  ipcMain.handle('aiReply:setAutoReply', async (_, enabled: boolean) => {
+    aiReplyService.setAutoReplyEnabled(enabled)
+    saveAIReplyConfig()
+    return { success: true }
+  })
+  ipcMain.handle('aiReply:getAutoReply', async () => {
+    return aiReplyService.isAutoReplyEnabled()
+  })
   ipcMain.handle('aiReply:setContactSkillMapping', async (_, contactId: string, skillId: string) => {
     aiReplyService.setContactSkillMapping(contactId, skillId)
+    saveAIReplyConfig()
     return { success: true }
   })
   ipcMain.handle('aiReply:removeContactSkillMapping', async (_, contactId: string) => {
     aiReplyService.removeContactSkillMapping(contactId)
+    saveAIReplyConfig()
     return { success: true }
   })
   ipcMain.handle('aiReply:getContactSkillMappings', async () => {
@@ -2038,21 +2092,27 @@ function registerIpcHandlers() {
   })
   ipcMain.handle('aiReply:importSkillFromDirectory', async (_, dir: string) => {
     try {
-      return await aiReplyService.importSkillFromDirectory(dir)
+      const skill = await aiReplyService.importSkillFromDirectory(dir)
+      saveAIReplyConfig()
+      return skill
     } catch (e: any) {
       return { error: e.message }
     }
   })
   ipcMain.handle('aiReply:importSkillFromZip', async (_, path: string) => {
     try {
-      return await aiReplyService.importSkillFromZip(path)
+      const skill = await aiReplyService.importSkillFromZip(path)
+      saveAIReplyConfig()
+      return skill
     } catch (e: any) {
       return { error: e.message }
     }
   })
   ipcMain.handle('aiReply:importSkillFromGit', async (_, url: string) => {
     try {
-      return await aiReplyService.importSkillFromGit(url)
+      const skill = await aiReplyService.importSkillFromGit(url)
+      saveAIReplyConfig()
+      return skill
     } catch (e: any) {
       return { error: e.message }
     }
@@ -2060,6 +2120,7 @@ function registerIpcHandlers() {
   ipcMain.handle('aiReply:createSkill', async (_, skill: any) => {
     try {
       aiReplyService.getSkillEngine().addSkill(skill)
+      saveAIReplyConfig()
       return skill
     } catch (e: any) {
       return { error: e.message }
@@ -2070,6 +2131,7 @@ function registerIpcHandlers() {
       const engine = aiReplyService.getSkillEngine()
       engine.removeSkill(id)
       engine.addSkill({ ...skill, id })
+      saveAIReplyConfig()
       return { success: true }
     } catch (e: any) {
       return { error: e.message }
@@ -2084,7 +2146,25 @@ function registerIpcHandlers() {
   })
   ipcMain.handle('aiReply:startDistill', async (_, params: any) => {
     try {
-      const taskId = await aiReplyService.startDistill(params)
+      const contactIds: string[] = params.contactIds || []
+      const contactId = contactIds[0] || ''
+      if (!contactId) {
+        return { error: 'No contact selected' }
+      }
+      const config: any = {
+        depth: params.depth >= 5 ? 'deep' : 'standard',
+        dimensions: [
+          'expressionDNA',
+          'mentalModels',
+          'decisionHeuristics',
+          'valuesAndAntiPatterns',
+          'honestyBoundaries'
+        ].slice(0, params.dimensions || 5),
+        skillName: params.skillName || '蒸馏角色',
+        skillDescription: `从聊天记录蒸馏生成的角色`,
+        messageLimit: params.messageLimit || 5000
+      }
+      const taskId = await aiReplyService.startDistill({ contactId, config, modelId: params.modelId })
       return taskId
     } catch (e: any) {
       return { error: e.message }
@@ -2101,7 +2181,9 @@ function registerIpcHandlers() {
   })
   ipcMain.handle('aiReply:saveDistillSkill', async (_, taskId: string, override?: any) => {
     try {
-      return await aiReplyService.saveDistillSkill(taskId, override)
+      const skill = await aiReplyService.saveDistillSkill(taskId, override)
+      saveAIReplyConfig()
+      return skill
     } catch (e: any) {
       return { error: e.message }
     }
@@ -2144,10 +2226,6 @@ function registerIpcHandlers() {
     } catch (e: any) {
       return []
     }
-  })
-
-  aiReplyService.on('distillProgress', (progress: any) => {
-    aiReplySender('aiReply:distillProgress', progress)
   })
 
   ipcMain.handle('config:clear', async () => {

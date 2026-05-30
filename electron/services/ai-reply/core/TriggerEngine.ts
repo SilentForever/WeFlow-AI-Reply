@@ -7,13 +7,22 @@ interface RateLimitEntry {
 export class TriggerEngine {
   private rules: TriggerRules
   private rateLimitMap: Map<string, RateLimitEntry> = new Map()
+  private selfNickname: string = ''
 
   constructor(rules: TriggerRules) {
     this.rules = rules
   }
 
+  setSelfNickname(name: string): void {
+    this.selfNickname = name
+  }
+
   updateRules(rules: TriggerRules): void {
     this.rules = rules
+  }
+
+  getRules(): TriggerRules {
+    return this.rules
   }
 
   shouldReply(message: WeChatMessage): { shouldReply: boolean; reason?: string } {
@@ -120,17 +129,24 @@ export class TriggerEngine {
 
     if (this.rules.triggerOnAt) {
       const content = message.content
-      const atMePatterns = ['@我', '@all', '@所有人', '@全体成员']
-      const isAtMe = atMePatterns.some(pattern => content.includes(pattern))
-      const atEveryone = this.rules.triggerOnAtAll && content.includes('@')
+      const atPatterns = ['@all', '@所有人', '@全体成员']
+      const isAtAll = atPatterns.some(pattern => content.includes(pattern))
+
+      let isAtMe = false
+      if (this.selfNickname) {
+        isAtMe = content.includes(`@${this.selfNickname}`)
+      }
+      if (!isAtMe) {
+        isAtMe = content.includes('@我')
+      }
+
+      const atEveryone = this.rules.triggerOnAtAll && isAtAll
 
       if (!isAtMe && !atEveryone) {
         return { passed: false, reason: '群聊中未@，不触发回复' }
       }
 
-      if (isAtMe || atEveryone) {
-        return { passed: true }
-      }
+      return { passed: true }
     }
 
     return { passed: true }
@@ -171,12 +187,23 @@ export class TriggerEngine {
     const windowMs = 60 * 1000
     entry.timestamps = entry.timestamps.filter(t => now - t < windowMs)
 
-    if (entry.timestamps.length >= this.rules.rateLimit.maxRepliesPerMinute) {
+    if (entry.timestamps.length === 0) {
+      this.rateLimitMap.delete(key)
+    }
+
+    if (this.rateLimitMap.size > 1000) {
+      this.cleanupRateLimitMap(now)
+    }
+
+    const currentEntry = this.rateLimitMap.get(key)
+    if (!currentEntry) return { passed: true }
+
+    if (currentEntry.timestamps.length >= this.rules.rateLimit.maxRepliesPerMinute) {
       return { passed: false, reason: '超过频率限制' }
     }
 
-    if (entry.timestamps.length > 0) {
-      const lastReply = entry.timestamps[entry.timestamps.length - 1]
+    if (currentEntry.timestamps.length > 0) {
+      const lastReply = currentEntry.timestamps[currentEntry.timestamps.length - 1]
       const elapsed = (now - lastReply) / 1000
       if (elapsed < this.rules.rateLimit.cooldownSeconds) {
         return { passed: false, reason: '冷却中' }
@@ -186,10 +213,22 @@ export class TriggerEngine {
     return { passed: true }
   }
 
-  private recordReply(message: WeChatMessage): void {
-    const entry = this.rateLimitMap.get(message.contactId)
-    if (entry) {
-      entry.timestamps.push(Date.now())
+  private cleanupRateLimitMap(now: number): void {
+    const windowMs = 60 * 1000
+    for (const [key, entry] of this.rateLimitMap) {
+      entry.timestamps = entry.timestamps.filter(t => now - t < windowMs)
+      if (entry.timestamps.length === 0) {
+        this.rateLimitMap.delete(key)
+      }
     }
+  }
+
+  private recordReply(message: WeChatMessage): void {
+    let entry = this.rateLimitMap.get(message.contactId)
+    if (!entry) {
+      entry = { timestamps: [] }
+      this.rateLimitMap.set(message.contactId, entry)
+    }
+    entry.timestamps.push(Date.now())
   }
 }

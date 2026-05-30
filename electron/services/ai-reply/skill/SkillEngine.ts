@@ -1,4 +1,4 @@
-import { readFile, readdir, mkdir, cp, rm } from 'fs/promises'
+import { readFile, readdir, mkdir, cp, rm, writeFile, rmdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { exec } from 'child_process'
@@ -47,11 +47,14 @@ export class SkillEngine {
 
   addSkill(skill: Skill): void {
     this.skills.set(skill.id, skill)
+    this.persistSkillToDisk(skill).catch(() => {})
   }
 
   removeSkill(id: string): boolean {
     if (this.skills.has(id) && !this.skills.get(id)?.isBuiltin) {
-      return this.skills.delete(id)
+      this.skills.delete(id)
+      this.removeSkillFromDisk(id).catch(() => {})
+      return true
     }
     return false
   }
@@ -60,6 +63,7 @@ export class SkillEngine {
     recentMessages?: Array<{ role: string; content: string }>
     relevantMemories?: string[]
     relationship?: { relationType: string; notes?: string } | undefined
+    contextSummary?: string | undefined
   }): string {
     const { persona, selfMemory } = skill
     const parts: string[] = []
@@ -120,6 +124,12 @@ export class SkillEngine {
     if (extraContext?.relevantMemories && extraContext.relevantMemories.length > 0) {
       parts.push(`## 相关记忆`)
       extraContext.relevantMemories.forEach(m => parts.push(`- ${m}`))
+      parts.push('')
+    }
+
+    if (extraContext?.contextSummary) {
+      parts.push(`## 对话历史摘要`)
+      parts.push(extraContext.contextSummary)
       parts.push('')
     }
 
@@ -383,5 +393,92 @@ export class SkillEngine {
     } finally {
       await rm(tmpDir, { recursive: true, force: true })
     }
+  }
+
+  private async persistSkillToDisk(skill: Skill): Promise<void> {
+    if (skill.isBuiltin) return
+    try {
+      const dir = join(this.skillsDir, skill.id)
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'SKILL.md'), this.renderSkillMd(skill), 'utf-8')
+      await writeFile(join(dir, 'self.md'), this.renderSelfMd(skill), 'utf-8')
+      await writeFile(join(dir, 'persona.md'), this.renderPersonaMd(skill), 'utf-8')
+    } catch {}
+  }
+
+  private async removeSkillFromDisk(id: string): Promise<void> {
+    try {
+      const dir = join(this.skillsDir, id)
+      if (existsSync(dir)) {
+        await rm(dir, { recursive: true, force: true })
+      }
+    } catch {}
+  }
+
+  private renderSkillMd(skill: Skill): string {
+    const lines: string[] = []
+    lines.push('---')
+    lines.push(`id: ${skill.id}`)
+    lines.push(`name: ${skill.name}`)
+    lines.push(`version: ${skill.version}`)
+    if (skill.author) lines.push(`author: ${skill.author}`)
+    lines.push(`description: ${skill.description}`)
+    lines.push('---')
+    lines.push('')
+    lines.push(`# ${skill.name}`)
+    lines.push('')
+    lines.push(skill.description)
+    return lines.join('\n')
+  }
+
+  private renderSelfMd(skill: Skill): string {
+    const lines: string[] = []
+    lines.push('# 自我记忆')
+    lines.push('')
+    lines.push('## 背景')
+    lines.push(skill.selfMemory.background)
+    lines.push('')
+    lines.push('## 经历')
+    for (const exp of skill.selfMemory.experiences) {
+      lines.push(`- ${exp}`)
+    }
+    lines.push('')
+    lines.push('## 价值观')
+    for (const v of skill.selfMemory.values) {
+      lines.push(`- ${v}`)
+    }
+    return lines.join('\n')
+  }
+
+  private renderPersonaMd(skill: Skill): string {
+    const lines: string[] = []
+    lines.push('# 角色设定')
+    lines.push('')
+    lines.push('## 身份')
+    lines.push(skill.persona.identity.role)
+    lines.push('')
+    lines.push('## 性格标签')
+    for (const tag of skill.persona.identity.tags) {
+      lines.push(`- ${tag}`)
+    }
+    lines.push('')
+    lines.push('## 语气')
+    lines.push(skill.persona.speechStyle.tone)
+    lines.push('')
+    lines.push('## 常用词汇')
+    for (const v of skill.persona.speechStyle.vocabulary) {
+      lines.push(`- ${v}`)
+    }
+    lines.push('')
+    lines.push('## 句式')
+    for (const p of skill.persona.speechStyle.sentencePatterns) {
+      lines.push(`- ${p}`)
+    }
+    lines.push('')
+    lines.push('## 规则')
+    for (const r of skill.persona.behavioralRules) {
+      lines.push(`- ${r}`)
+    }
+    return lines.join('\n')
   }
 }

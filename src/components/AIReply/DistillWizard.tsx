@@ -50,18 +50,23 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
     }
   }, [store.models, store.activeModelId, selectedModelId])
 
-  const getSelectedModelConfig = (): { type: ModelType; baseUrl: string; apiKey: string; model: string } | null => {
-    if (!useExistingModel || !selectedModelId) return null
-    const m = store.models.find(m => m.id === selectedModelId)
-    if (!m) return null
-    const cfg = m.config as any
-    return {
-      type: m.type,
-      baseUrl: cfg.baseUrl || '',
-      apiKey: cfg.apiKey || '',
-      model: cfg.model || ''
+  useEffect(() => {
+    if (open) {
+      setStep(1)
+      setSelectedContactIds([])
+      setMessageLimit(500)
+      setUseTimeRange(false)
+      setTimeRange([0, 23])
+      setUseExistingModel(true)
+      setDistillDepth(3)
+      setDistillDimensions(5)
+      setSkillName('')
+      setProgress(null)
+      setTaskId('')
+      setError('')
+      setCompletedSkill(null)
     }
-  }
+  }, [open])
 
   const pollProgress = useCallback(async () => {
     if (!taskId) return
@@ -103,35 +108,23 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
   const handleStartDistill = async () => {
     setError('')
     try {
-      let finalModelType = modelType
-      let finalBaseUrl = modelBaseUrl
-      let finalApiKey = modelApiKey
-      let finalModelName = modelName
+      let distillModelId = ''
 
       if (useExistingModel) {
-        const cfg = getSelectedModelConfig()
-        if (cfg) {
-          finalModelType = cfg.type
-          finalBaseUrl = cfg.baseUrl
-          finalApiKey = cfg.apiKey
-          finalModelName = cfg.model
-        }
+        distillModelId = selectedModelId
       } else {
-        if (!store.activeModelId || store.models.length === 0) {
-          const newModel: ModelConfig = {
-            id: `${modelType}-${Date.now()}`,
-            name: `${skillName} - 蒸馏模型`,
-            type: modelType,
-            enabled: true,
-            config: modelType === 'ollama'
-              ? { baseUrl: modelBaseUrl, model: modelName, temperature: 0.7, maxTokens: 2048 }
-              : { apiKey: modelApiKey, baseUrl: modelBaseUrl, model: modelName, temperature: 0.7, maxTokens: 2048 }
-          }
-          await store.addModel(newModel)
-          if (!store.activeModelId) {
-            await store.setActiveModel(newModel.id)
-          }
+        const newModel: ModelConfig = {
+          id: `${modelType}-${Date.now()}`,
+          name: `${skillName} - 蒸馏模型`,
+          type: modelType,
+          enabled: true,
+          config: modelType === 'ollama'
+            ? { baseUrl: modelBaseUrl, model: modelName, temperature: 0.7, maxTokens: 4096 }
+            : { apiKey: modelApiKey, baseUrl: modelBaseUrl, model: modelName, temperature: 0.7, maxTokens: 4096 }
         }
+        await store.addModel(newModel)
+        await store.setActiveModel(newModel.id)
+        distillModelId = newModel.id
       }
 
       const id = await window.electronAPI?.aiReply?.startDistill({
@@ -139,17 +132,16 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
         messageLimit,
         useTimeRange,
         timeRange: useTimeRange ? timeRange : undefined,
-        modelType: finalModelType,
-        modelBaseUrl: finalBaseUrl,
-        modelApiKey: finalApiKey,
-        modelName: finalModelName,
+        modelId: distillModelId,
         depth: distillDepth,
         dimensions: distillDimensions,
         skillName
       })
-      if (id) {
-        setTaskId(id)
+      if (id && !(id as any).error) {
+        setTaskId(id as string)
         setStep(4)
+      } else if (id && (id as any).error) {
+        setError((id as any).error || '启动蒸馏失败')
       }
     } catch (e: any) {
       setError(e.message || '启动蒸馏失败')
@@ -160,9 +152,11 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
     if (!completedSkill) return
     try {
       const saved = await window.electronAPI?.aiReply?.saveDistillSkill(taskId)
-      if (saved) {
+      if (saved && !(saved as any).error) {
         onCompleted(saved as Skill)
         onClose()
+      } else if (saved && (saved as any).error) {
+        setError((saved as any).error)
       }
     } catch (e: any) {
       setError(e.message || '保存失败')
