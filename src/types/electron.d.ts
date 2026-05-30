@@ -1345,8 +1345,10 @@ export interface ElectronAPI {
     setContactSkillMapping: (contactId: string, skillId: string) => Promise<{ success: boolean }>
     removeContactSkillMapping: (contactId: string) => Promise<{ success: boolean }>
     getContactSkillMappings: () => Promise<unknown[]>
-    getReplyLogs: (limit?: number) => Promise<unknown[]>
+    getReplyLogs: (limit?: number, offset?: number) => Promise<ReplyLog[]>
+    getReplyLogsCount: () => Promise<number>
     clearReplyLogs: () => Promise<{ success: boolean }>
+    deleteReplyLogs: (ids: string[]) => Promise<{ success: boolean }>
     getDailyStats: () => Promise<{ receivedCount: number; repliedCount: number; activeContacts: number; errorCount: number }>
     clearContext: (contactId: string) => Promise<{ success: boolean }>
     fetchAvailableModels: (type: string, baseUrl: string, apiKey?: string) => Promise<unknown[]>

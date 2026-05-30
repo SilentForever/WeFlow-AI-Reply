@@ -1956,11 +1956,18 @@ function registerIpcHandlers() {
   ipcMain.handle('aiReply:getContactSkillMappings', async () => {
     return aiReplyService.getContactSkillMappings()
   })
-  ipcMain.handle('aiReply:getReplyLogs', async (_, limit?: number) => {
-    return aiReplyService.getReplyLogs(limit)
+  ipcMain.handle('aiReply:getReplyLogs', async (_, limit?: number, offset?: number) => {
+    return aiReplyService.getReplyLogs(limit, offset)
+  })
+  ipcMain.handle('aiReply:getReplyLogsCount', async () => {
+    return aiReplyService.getReplyLogsCount()
   })
   ipcMain.handle('aiReply:clearReplyLogs', async () => {
     aiReplyService.clearReplyLogs()
+    return { success: true }
+  })
+  ipcMain.handle('aiReply:deleteReplyLogs', async (_, ids: string[]) => {
+    aiReplyService.deleteReplyLogs(ids)
     return { success: true }
   })
   ipcMain.handle('aiReply:getDailyStats', async () => {

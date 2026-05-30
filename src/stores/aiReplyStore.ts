@@ -12,6 +12,7 @@ export interface AIReplyState {
   activeSkillId: string
   triggerRules: TriggerRules
   replyLogs: ReplyLog[]
+  replyLogsTotal: number
   dailyStats: DailyStats
   contactSkillMappings: ContactSkillMapping[]
   testResult: { success: boolean; message: string; latencyMs?: number } | null
@@ -48,8 +49,10 @@ export interface AIReplyState {
   setContactSkillMapping: (contactId: string, skillId: string) => Promise<void>
   removeContactSkillMapping: (contactId: string) => Promise<void>
   fetchContactSkillMappings: () => Promise<void>
-  fetchReplyLogs: (limit?: number) => Promise<void>
+  fetchReplyLogs: (limit?: number, offset?: number) => Promise<void>
+  fetchReplyLogsCount: () => Promise<void>
   clearReplyLogs: () => Promise<void>
+  deleteReplyLogs: (ids: string[]) => Promise<void>
   fetchDailyStats: () => Promise<void>
   clearContext: (contactId: string) => Promise<void>
   setupListeners: () => () => void
@@ -76,6 +79,7 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   activeSkillId: 'default-assistant',
   triggerRules: DEFAULT_TRIGGER_RULES,
   replyLogs: [],
+  replyLogsTotal: 0,
   dailyStats: { receivedCount: 0, repliedCount: 0, activeContacts: 0, errorCount: 0 },
   contactSkillMappings: [],
   testResult: null,
@@ -204,14 +208,25 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
     set({ contactSkillMappings: mappings })
   },
 
-  fetchReplyLogs: async (limit) => {
-    const logs = (await api()?.getReplyLogs(limit) || []) as ReplyLog[]
+  fetchReplyLogs: async (limit, offset) => {
+    const logs = (await api()?.getReplyLogs(limit, offset) || []) as ReplyLog[]
     set({ replyLogs: logs })
+  },
+
+  fetchReplyLogsCount: async () => {
+    const total = await api()?.getReplyLogsCount() || 0
+    set({ replyLogsTotal: total })
   },
 
   clearReplyLogs: async () => {
     await api()?.clearReplyLogs()
-    set({ replyLogs: [] })
+    set({ replyLogs: [], replyLogsTotal: 0 })
+  },
+
+  deleteReplyLogs: async (ids) => {
+    await api()?.deleteReplyLogs(ids)
+    const total = await api()?.getReplyLogsCount() || 0
+    set({ replyLogsTotal: total })
   },
 
   fetchDailyStats: async () => {
@@ -230,7 +245,8 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
 
     const unsub2 = api()?.onReplySent((log) => {
       set((state) => ({
-        replyLogs: [...state.replyLogs.slice(-99), log as ReplyLog]
+        replyLogs: [...state.replyLogs.slice(-99), log as ReplyLog],
+        replyLogsTotal: state.replyLogsTotal + 1
       }))
     }) || (() => {})
 

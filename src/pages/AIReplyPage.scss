@@ -592,6 +592,9 @@
   border: 1px solid var(--border-color);
   cursor: pointer;
   transition: border-color 0.15s;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
 
   &:hover {
     border-color: var(--primary);
@@ -600,6 +603,25 @@
   &.log-error {
     border-color: var(--danger);
     background: rgba(239, 68, 68, 0.05);
+  }
+
+  &.selected {
+    border-color: var(--primary);
+    background: rgba(16, 163, 127, 0.08);
+  }
+
+  .log-checkbox {
+    flex-shrink: 0;
+    margin-top: 4px;
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+    accent-color: var(--primary);
+  }
+
+  .log-content {
+    flex: 1;
+    min-width: 0;
   }
 
   .log-header {
@@ -657,6 +679,56 @@
       overflow: hidden;
       text-overflow: ellipsis;
     }
+  }
+}
+
+.log-count {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text-secondary);
+  margin-left: 4px;
+}
+
+.log-select-bar {
+  display: flex;
+  align-items: center;
+  padding: 8px 0 12px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 8px;
+
+  .select-all-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    cursor: pointer;
+
+    input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--primary);
+    }
+  }
+}
+
+.log-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px 0 8px;
+  border-top: 1px solid var(--border-color);
+  margin-top: 8px;
+
+  .page-info {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 }
 

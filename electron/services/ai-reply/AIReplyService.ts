@@ -1,4 +1,6 @@
 import { EventEmitter } from 'events'
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { join } from 'path'
 import type { WeChatMessage, Skill, ReplyLog, DailyStats, ContactSkillMapping, ModelType, ModelInfo, DistillConfig, DistillProgress, ChatRecord } from '../../../src/types/ai-reply'
 import { DEFAULT_TRIGGER_RULES } from '../../../src/types/ai-reply'
 import { createAdapter, type BaseAdapter } from './adapters'
@@ -32,6 +34,7 @@ export class AIReplyService extends EventEmitter {
   private sseUrl: string = 'http://127.0.0.1:5031/api/v1/push/messages'
   private accessToken: string = ''
   private distillService: DistillService
+  private logsFilePath: string
 
   constructor(skillsDir: string) {
     super()
@@ -40,6 +43,32 @@ export class AIReplyService extends EventEmitter {
     this.triggerEngine = new TriggerEngine(DEFAULT_TRIGGER_RULES)
     this.messageDeduper = new MessageDeduper()
     this.distillService = new DistillService()
+    this.logsFilePath = join(skillsDir, '..', 'reply-logs.json')
+    this.loadLogsFromDisk()
+  }
+
+  private loadLogsFromDisk(): void {
+    try {
+      if (existsSync(this.logsFilePath)) {
+        const raw = readFileSync(this.logsFilePath, 'utf-8')
+        const data = JSON.parse(raw)
+        if (Array.isArray(data)) {
+          this.replyLogs = data
+        }
+      }
+    } catch {
+      this.replyLogs = []
+    }
+  }
+
+  private saveLogsToDisk(): void {
+    try {
+      const dir = join(this.logsFilePath, '..')
+      if (!existsSync(dir)) {
+        mkdirSync(dir, { recursive: true })
+      }
+      writeFileSync(this.logsFilePath, JSON.stringify(this.replyLogs, null, 0), 'utf-8')
+    } catch {}
   }
 
   async start(): Promise<void> {
@@ -158,12 +187,24 @@ export class AIReplyService extends EventEmitter {
     return this.contextManager
   }
 
-  getReplyLogs(limit = 100): ReplyLog[] {
-    return this.replyLogs.slice(-limit)
+  getReplyLogs(limit = 100, offset = 0): ReplyLog[] {
+    const sorted = [...this.replyLogs].sort((a, b) => b.timestamp - a.timestamp)
+    return sorted.slice(offset, offset + limit)
+  }
+
+  getReplyLogsCount(): number {
+    return this.replyLogs.length
   }
 
   clearReplyLogs(): void {
     this.replyLogs = []
+    this.saveLogsToDisk()
+  }
+
+  deleteReplyLogs(ids: string[]): void {
+    const idSet = new Set(ids)
+    this.replyLogs = this.replyLogs.filter(log => !idSet.has(log.id))
+    this.saveLogsToDisk()
   }
 
   getDailyStats(): DailyStats {
@@ -277,6 +318,7 @@ export class AIReplyService extends EventEmitter {
       }
 
       this.replyLogs.push(log)
+      this.saveLogsToDisk()
       this.dailyStats.repliedCount++
       this.emit('replySent', log)
 
@@ -306,6 +348,7 @@ export class AIReplyService extends EventEmitter {
       }
 
       this.replyLogs.push(log)
+      this.saveLogsToDisk()
       this.dailyStats.errorCount++
       this.emit('replyError', { contactId: message.contactId, error: log.errorMessage || 'Unknown error' })
     }

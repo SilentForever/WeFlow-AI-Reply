@@ -632,8 +632,16 @@ function LogsTab() {
   const [statusFilter, setStatusFilter] = useState('')
   const [contactFilter, setContactFilter] = useState('')
   const [keywordFilter, setKeywordFilter] = useState('')
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [page, setPage] = useState(1)
+  const pageSize = 20
 
-  const filteredLogs = store.replyLogs.slice().reverse().filter(log => {
+  useEffect(() => {
+    store.fetchReplyLogs(pageSize, (page - 1) * pageSize)
+    store.fetchReplyLogsCount()
+  }, [page])
+
+  const filteredLogs = store.replyLogs.filter(log => {
     if (statusFilter === 'success' && !log.success) return false
     if (statusFilter === 'error' && log.success) return false
     if (contactFilter && !log.contactName.includes(contactFilter)) return false
@@ -641,16 +649,50 @@ function LogsTab() {
     return true
   })
 
+  const totalPages = Math.ceil(store.replyLogsTotal / pageSize)
+
+  const toggleSelect = (id: string) => {
+    const newSet = new Set(selectedIds)
+    if (newSet.has(id)) newSet.delete(id)
+    else newSet.add(id)
+    setSelectedIds(newSet)
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredLogs.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filteredLogs.map(l => l.id)))
+    }
+  }
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return
+    await store.deleteReplyLogs([...selectedIds])
+    setSelectedIds(new Set())
+    store.fetchReplyLogs(pageSize, (page - 1) * pageSize)
+  }
+
+  const handleClearAll = async () => {
+    await store.clearReplyLogs()
+    setSelectedIds(new Set())
+  }
+
   return (
     <div className="logs-tab">
       <div className="section-header">
-        <h3>回复日志</h3>
+        <h3>回复日志 <span className="log-count">({store.replyLogsTotal} 条)</span></h3>
         <div className="log-actions">
-          <button className="btn" onClick={() => store.fetchReplyLogs()}>
+          <button className="btn" onClick={() => { store.fetchReplyLogs(pageSize, (page - 1) * pageSize); store.fetchReplyLogsCount() }}>
             <RefreshCw size={16} /> 刷新
           </button>
-          <button className="btn btn-danger" onClick={() => store.clearReplyLogs()}>
-            <Trash2 size={16} /> 清空
+          {selectedIds.size > 0 && (
+            <button className="btn btn-danger" onClick={handleDeleteSelected}>
+              <Trash2 size={16} /> 删除选中 ({selectedIds.size})
+            </button>
+          )}
+          <button className="btn btn-danger" onClick={handleClearAll}>
+            <Trash2 size={16} /> 清空全部
           </button>
         </div>
       </div>
@@ -679,28 +721,59 @@ function LogsTab() {
           <p>暂无回复日志</p>
         </div>
       ) : (
-        <div className="log-list">
-          {filteredLogs.map(log => (
-            <div
-              key={log.id}
-              className={`log-item ${log.success ? '' : 'log-error'}`}
-              onClick={() => store.setSelectedLogDetail(log)}
-            >
-              <div className="log-header">
-                <span className="log-contact">{log.contactName}</span>
-                <span className="log-meta">
-                  {log.skillName} · {log.modelName} · {log.latencyMs}ms
-                </span>
-                <span className="log-time">{new Date(log.timestamp).toLocaleString()}</span>
+        <>
+          <div className="log-select-bar">
+            <label className="select-all-label">
+              <input
+                type="checkbox"
+                checked={selectedIds.size === filteredLogs.length && filteredLogs.length > 0}
+                onChange={toggleSelectAll}
+              />
+              <span>全选本页</span>
+            </label>
+          </div>
+          <div className="log-list">
+            {filteredLogs.map(log => (
+              <div
+                key={log.id}
+                className={`log-item ${log.success ? '' : 'log-error'} ${selectedIds.has(log.id) ? 'selected' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  className="log-checkbox"
+                  checked={selectedIds.has(log.id)}
+                  onChange={() => toggleSelect(log.id)}
+                  onClick={e => e.stopPropagation()}
+                />
+                <div className="log-content" onClick={() => store.setSelectedLogDetail(log)}>
+                  <div className="log-header">
+                    <span className="log-contact">{log.contactName}</span>
+                    <span className="log-meta">
+                      {log.skillName} · {log.modelName} · {log.latencyMs}ms
+                    </span>
+                    <span className="log-time">{new Date(log.timestamp).toLocaleString()}</span>
+                  </div>
+                  <div className="log-body">
+                    <div className="log-received">{log.receivedMessage}</div>
+                    <ChevronRight size={14} />
+                    <div className="log-reply">{log.generatedReply || log.errorMessage}</div>
+                  </div>
+                </div>
               </div>
-              <div className="log-body">
-                <div className="log-received">{log.receivedMessage}</div>
-                <ChevronRight size={14} />
-                <div className="log-reply">{log.generatedReply || log.errorMessage}</div>
-              </div>
+            ))}
+          </div>
+          {totalPages > 1 && (
+            <div className="log-pagination">
+              <button className="btn" disabled={page <= 1} onClick={() => setPage(page - 1)}>
+                上一页
+              </button>
+              <span className="page-info">第 {page} / {totalPages} 页</span>
+              <button className="btn" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
+                下一页
+              </button>
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       <LogDetailDialog log={store.selectedLogDetail} onClose={() => store.setSelectedLogDetail(null)} />
