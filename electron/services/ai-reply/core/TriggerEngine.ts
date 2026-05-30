@@ -110,15 +110,26 @@ export class TriggerEngine {
   }
 
   private checkAtTrigger(message: WeChatMessage): { passed: boolean; reason?: string } {
-    if (!message.isGroup) return { passed: true }
+    if (!message.isGroup) {
+      return { passed: true }
+    }
 
-    if (this.rules.triggerOnAt && this.rules.keywords.include.length === 0) {
-      const isAtMe = message.content.includes('@我') ||
-        message.content.includes('@all') ||
-        message.content.includes('@所有人')
-      if (!isAtMe && this.rules.triggerOnAt) {
-        // In group, if triggerOnAt is true and no keywords, only reply when @
-        // But if keywords are set, keyword matching takes precedence
+    if (this.rules.keywords.include.length > 0) {
+      return { passed: true }
+    }
+
+    if (this.rules.triggerOnAt) {
+      const content = message.content
+      const atMePatterns = ['@我', '@all', '@所有人', '@全体成员']
+      const isAtMe = atMePatterns.some(pattern => content.includes(pattern))
+      const atEveryone = this.rules.triggerOnAtAll && content.includes('@')
+
+      if (!isAtMe && !atEveryone) {
+        return { passed: false, reason: '群聊中未@，不触发回复' }
+      }
+
+      if (isAtMe || atEveryone) {
+        return { passed: true }
       }
     }
 
