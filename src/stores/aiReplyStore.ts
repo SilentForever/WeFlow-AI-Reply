@@ -69,6 +69,7 @@ export interface AIReplyState {
   setEditingSkill: (skill: Skill | null) => void
   setSelectedLogDetail: (log: ReplyLog | null) => void
   clearTestReply: () => void
+  clearError: () => void
 }
 
 export const useAIReplyStore = create<AIReplyState>((set, get) => ({
@@ -361,5 +362,9 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
 
   clearTestReply: () => {
     set({ testReplyResult: null, testReplyLatencyMs: undefined })
+  },
+
+  clearError: () => {
+    set({ error: null })
   }
 }))

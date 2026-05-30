@@ -35,9 +35,11 @@ export class AIReplyService extends EventEmitter {
   private accessToken: string = ''
   private distillService: DistillService
   private logsFilePath: string
+  private skillsDir: string
 
   constructor(skillsDir: string) {
     super()
+    this.skillsDir = skillsDir
     this.skillEngine = new SkillEngine(skillsDir)
     this.contextManager = new ContextManager()
     this.triggerEngine = new TriggerEngine(DEFAULT_TRIGGER_RULES)
@@ -73,6 +75,13 @@ export class AIReplyService extends EventEmitter {
 
   async start(): Promise<void> {
     if (this.status === 'running') return
+
+    if (this.modelAdapters.size === 0) {
+      throw new Error('请先配置至少一个模型')
+    }
+    if (!this.activeModelId) {
+      throw new Error('请选择一个激活模型')
+    }
 
     try {
       await this.skillEngine.loadAllSkills()
@@ -171,7 +180,7 @@ export class AIReplyService extends EventEmitter {
   }
 
   getTriggerRules(): any {
-    return this.triggerEngine
+    return this.triggerEngine.getRules()
   }
 
   setSSEConfig(url: string, accessToken: string): void {

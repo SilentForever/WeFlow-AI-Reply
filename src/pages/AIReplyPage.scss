@@ -5,6 +5,35 @@
   padding: 20px;
   overflow: hidden;
 
+  .error-notification {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: #ffebee;
+    color: #c62828;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    border: 1px solid #ef9a9a;
+
+    .close-btn {
+      margin-left: auto;
+      border: none;
+      background: none;
+      color: #c62828;
+      cursor: pointer;
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+
+      &:hover {
+        background: rgba(0, 0, 0, 0.05);
+      }
+    }
+  }
+
   .ai-reply-header {
     display: flex;
     justify-content: space-between;

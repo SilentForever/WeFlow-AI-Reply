@@ -46,8 +46,24 @@ export default function AIReplyPage() {
     return cleanup
   }, [])
 
+  useEffect(() => {
+    if (store.error) {
+      const timer = setTimeout(() => store.clearError(), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [store.error])
+
   return (
     <div className="ai-reply-page">
+      {store.error && (
+        <div className="error-notification">
+          <XCircle size={18} />
+          <span>{store.error}</span>
+          <button className="close-btn" onClick={() => store.clearError()}>
+            <XCircle size={16} />
+          </button>
+        </div>
+      )}
       <div className="ai-reply-header">
         <div className="header-left">
           <Bot size={24} />

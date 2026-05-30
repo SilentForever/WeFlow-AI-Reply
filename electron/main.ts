@@ -1862,7 +1862,40 @@ function registerIpcHandlers() {
 
   // AI 自动回复 IPC 处理器
   const { AIReplyService } = require('./services/ai-reply/AIReplyService') as typeof import('./services/ai-reply/AIReplyService')
-  const aiReplyService = new AIReplyService(join(app.getPath('userData'), 'ai-reply', 'skills'))
+  const aiReplySkillsDir = join(app.getPath('userData'), 'ai-reply', 'skills')
+  const aiReplyService = new AIReplyService(aiReplySkillsDir)
+
+  // 用 configService 存储模型配置
+  let modelConfigs: any[] = []
+  function loadAIReplyConfig() {
+    const cfg = configService?.get('aiReplyConfig' as any) || {}
+    modelConfigs = cfg.models || []
+    if (modelConfigs.length > 0) {
+      modelConfigs.forEach(mc => {
+        try { aiReplyService.setModelAdapter(mc) } catch {}
+      })
+      if (cfg.activeModelId && modelConfigs.find(m => m.id === cfg.activeModelId)) {
+        aiReplyService.setActiveModel(cfg.activeModelId)
+      }
+      if (cfg.activeSkillId) {
+        aiReplyService.setActiveSkill(cfg.activeSkillId)
+      }
+      if (cfg.triggerRules) {
+        aiReplyService.setTriggerRules(cfg.triggerRules)
+      }
+    }
+  }
+  function saveAIReplyConfig() {
+    const cfg = {
+      models: modelConfigs,
+      activeModelId: aiReplyService.getActiveModelId(),
+      activeSkillId: aiReplyService.getActiveSkillId(),
+      triggerRules: aiReplyService.getTriggerRules()
+    }
+    configService?.set('aiReplyConfig' as any, cfg)
+  }
+  // 初始化加载配置
+  loadAIReplyConfig()
 
   const aiReplySender = (channel: string, ...args: any[]) => {
     const win = BrowserWindow.getAllWindows()[0]
@@ -1900,23 +1933,33 @@ function registerIpcHandlers() {
     configService?.set('aiReply' as any, config)
     return { success: true }
   })
+  ipcMain.handle('aiReply:getModels', async () => {
+    return modelConfigs
+  })
   ipcMain.handle('aiReply:addModel', async (_, modelConfig: any) => {
+    const existingIndex = modelConfigs.findIndex(m => m.id === modelConfig.id)
+    if (existingIndex >= 0) {
+      modelConfigs[existingIndex] = modelConfig
+    } else {
+      modelConfigs.push(modelConfig)
+    }
     aiReplyService.setModelAdapter(modelConfig)
+    saveAIReplyConfig()
     return { success: true }
   })
   ipcMain.handle('aiReply:removeModel', async (_, modelId: string) => {
+    modelConfigs = modelConfigs.filter(m => m.id !== modelId)
     aiReplyService.removeModelAdapter(modelId)
+    saveAIReplyConfig()
     return { success: true }
   })
   ipcMain.handle('aiReply:setActiveModel', async (_, modelId: string) => {
     aiReplyService.setActiveModel(modelId)
+    saveAIReplyConfig()
     return { success: true }
   })
   ipcMain.handle('aiReply:testModel', async (_, modelId: string) => {
     return aiReplyService.testModelConnection(modelId)
-  })
-  ipcMain.handle('aiReply:getModels', async () => {
-    return configService?.get('aiReplyModels' as any) || []
   })
   ipcMain.handle('aiReply:addSkill', async (_, skill: any) => {
     aiReplyService.getSkillEngine().addSkill(skill)
@@ -1927,6 +1970,7 @@ function registerIpcHandlers() {
   })
   ipcMain.handle('aiReply:setActiveSkill', async (_, skillId: string) => {
     aiReplyService.setActiveSkill(skillId)
+    saveAIReplyConfig()
     return { success: true }
   })
   ipcMain.handle('aiReply:getSkills', async () => {
@@ -1940,10 +1984,11 @@ function registerIpcHandlers() {
   })
   ipcMain.handle('aiReply:setTriggerRules', async (_, rules: any) => {
     aiReplyService.setTriggerRules(rules)
+    saveAIReplyConfig()
     return { success: true }
   })
   ipcMain.handle('aiReply:getTriggerRules', async () => {
-    return configService?.get('aiReplyTriggerRules' as any) || {}
+    return aiReplyService.getTriggerRules()
   })
   ipcMain.handle('aiReply:setContactSkillMapping', async (_, contactId: string, skillId: string) => {
     aiReplyService.setContactSkillMapping(contactId, skillId)
