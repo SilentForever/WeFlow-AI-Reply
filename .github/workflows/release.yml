@@ -188,7 +188,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npx electron-builder --win nsis --x64 --publish always '--config.publish.owner=${{ github.repository_owner }}' '--config.publish.repo=${{ github.event.repository.name }}' '--config.artifactName=${productName}-${version}-x64-Setup.${ext}'
+          npx electron-builder --win nsis portable --x64 --publish always '--config.publish.owner=${{ github.repository_owner }}' '--config.publish.repo=${{ github.event.repository.name }}' '--config.artifactName=${productName}-${version}-x64-Setup.${ext}' '--config.portable.artifactName=${productName}-${version}-x64-Portable.${ext}'
 
       - name: Inject minimumVersion into latest yml
         env:
@@ -241,7 +241,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npx electron-builder --win nsis --arm64 --publish always '--config.publish.owner=${{ github.repository_owner }}' '--config.publish.repo=${{ github.event.repository.name }}' '--config.publish.channel=latest-arm64' '--config.artifactName=${productName}-${version}-arm64-Setup.${ext}'
+          npx electron-builder --win nsis portable --arm64 --publish always '--config.publish.owner=${{ github.repository_owner }}' '--config.publish.repo=${{ github.event.repository.name }}' '--config.publish.channel=latest-arm64' '--config.artifactName=${productName}-${version}-arm64-Setup.${ext}' '--config.portable.artifactName=${productName}-${version}-arm64-Portable.${ext}'
 
       - name: Inject minimumVersion into latest yml
         env:
