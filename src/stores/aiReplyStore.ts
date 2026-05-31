@@ -28,6 +28,10 @@ export interface AIReplyState {
   editingSkill: Skill | null
   selectedLogDetail: ReplyLog | null
   autoReplyEnabled: boolean
+  sseStatus: 'disconnected' | 'connecting' | 'connected' | 'error'
+  sseError: string
+  prerequisiteChecks: { name: string; passed: boolean; message: string; configKey?: string }[] | null
+  prerequisitesAllPassed: boolean | null
 
   start: () => Promise<void>
   pause: () => Promise<void>
@@ -71,6 +75,8 @@ export interface AIReplyState {
   setSelectedLogDetail: (log: ReplyLog | null) => void
   setAutoReplyEnabled: (enabled: boolean) => Promise<void>
   fetchAutoReplyEnabled: () => Promise<void>
+  fetchSSEStatus: () => Promise<void>
+  checkPrerequisites: () => Promise<void>
   clearTestReply: () => void
   clearError: () => void
 }
@@ -99,6 +105,10 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   editingSkill: null,
   selectedLogDetail: null,
   autoReplyEnabled: false,
+  sseStatus: 'disconnected',
+  sseError: '',
+  prerequisiteChecks: null,
+  prerequisitesAllPassed: null,
 
   start: async () => {
     set({ isLoading: true, error: null })
@@ -271,10 +281,22 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
       get().fetchDailyStats()
     }) || (() => {})
 
+    const unsub4 = api()?.onSSEStatusChanged?.((status: any) => {
+      if (typeof status === 'string') {
+        set({ sseStatus: status as 'disconnected' | 'connecting' | 'connected' | 'error' })
+      } else if (status && typeof status === 'object') {
+        set({
+          sseStatus: (status.status || status) as 'disconnected' | 'connecting' | 'connected' | 'error',
+          sseError: status.error || ''
+        })
+      }
+    }) || (() => {})
+
     return () => {
       unsub1()
       unsub2()
       unsub3()
+      unsub4()
     }
   },
 
@@ -384,6 +406,30 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   fetchAutoReplyEnabled: async () => {
     const enabled = await api()?.getAutoReply()
     if (typeof enabled === 'boolean') set({ autoReplyEnabled: enabled })
+  },
+
+  fetchSSEStatus: async () => {
+    try {
+      const result = await api()?.getSSEStatus?.()
+      if (result) {
+        set({
+          sseStatus: (result.status || 'disconnected') as 'disconnected' | 'connecting' | 'connected' | 'error',
+          sseError: result.error || ''
+        })
+      }
+    } catch {}
+  },
+
+  checkPrerequisites: async () => {
+    try {
+      const result = await api()?.checkPrerequisites?.()
+      if (result) {
+        set({
+          prerequisiteChecks: result.checks,
+          prerequisitesAllPassed: result.allPassed
+        })
+      }
+    } catch {}
   },
 
   clearTestReply: () => {

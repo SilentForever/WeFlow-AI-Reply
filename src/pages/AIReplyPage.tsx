@@ -7,7 +7,7 @@ import {
   MessageSquare, Zap, Users, Clock, Shield, ChevronRight,
   CheckCircle2, XCircle, Loader2, RefreshCw, Send, Sparkles,
   Brain, UserCircle, Activity, Search, Eye, Edit3, Download,
-  FolderDown, FlaskConical, Pencil
+  FolderDown, FlaskConical, Pencil, Wifi, WifiOff, AlertTriangle, ArrowRight
 } from 'lucide-react'
 import ToggleSwitch from '../components/AIReply/ToggleSwitch'
 import TagInput from '../components/AIReply/TagInput'
@@ -45,6 +45,8 @@ export default function AIReplyPage() {
     store.fetchDailyStats()
     store.fetchReplyLogs()
     store.fetchAutoReplyEnabled()
+    store.fetchSSEStatus()
+    store.checkPrerequisites()
     const cleanup = store.setupListeners()
     return cleanup
   }, [])
@@ -74,10 +76,16 @@ export default function AIReplyPage() {
           <h2>AI 自动回复</h2>
         </div>
         <div className="header-right">
+          <SSEStatusIndicator status={store.sseStatus} error={store.sseError} />
           <StatusBadge status={store.status} />
           <div className="service-controls">
             {store.status === 'stopped' && (
-              <button className="btn btn-primary" onClick={() => store.start()} disabled={store.isLoading}>
+              <button className="btn btn-primary" onClick={async () => {
+                await store.checkPrerequisites()
+                if (store.prerequisitesAllPassed) {
+                  store.start()
+                }
+              }} disabled={store.isLoading}>
                 {store.isLoading ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
                 启动
               </button>
@@ -141,6 +149,99 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`status-badge ${c.className}`}>{c.label}</span>
 }
 
+function SSEStatusIndicator({ status, error }: { status: string; error: string }) {
+  const config: Record<string, { icon: React.ElementType; label: string; className: string }> = {
+    connected: { icon: Wifi, label: 'SSE 已连接', className: 'sse-connected' },
+    connecting: { icon: Loader2, label: 'SSE 连接中...', className: 'sse-connecting' },
+    disconnected: { icon: WifiOff, label: 'SSE 未连接', className: 'sse-disconnected' },
+    error: { icon: AlertTriangle, label: 'SSE 连接错误', className: 'sse-error' }
+  }
+  const c = config[status] || config.disconnected
+  const Icon = c.icon
+  return (
+    <span className={`sse-status-indicator ${c.className}`} title={error || c.label}>
+      <Icon size={14} className={status === 'connecting' ? 'spin' : ''} />
+      <span className="sse-label">{c.label}</span>
+    </span>
+  )
+}
+
+function PrerequisiteCheckSection() {
+  const store = useAIReplyStore()
+  const [expanded, setExpanded] = useState(true)
+  const [checking, setChecking] = useState(false)
+
+  const handleCheck = async () => {
+    setChecking(true)
+    await store.checkPrerequisites()
+    setChecking(false)
+  }
+
+  useEffect(() => {
+    store.checkPrerequisites()
+  }, [])
+
+  const checks = store.prerequisiteChecks
+  const allPassed = store.prerequisitesAllPassed
+
+  if (!checks || checks.length === 0) return null
+
+  const failedCount = checks.filter(c => !c.passed).length
+
+  return (
+    <div className={`prerequisite-section ${allPassed ? 'all-passed' : 'has-failures'}`}>
+      <div className="prerequisite-header" onClick={() => setExpanded(!expanded)}>
+        <div className="prerequisite-title">
+          {allPassed ? (
+            <CheckCircle2 size={18} className="icon-success" />
+          ) : (
+            <AlertTriangle size={18} className="icon-warning" />
+          )}
+          <span>{allPassed ? '所有前置条件已满足' : `${failedCount} 项前置条件未满足`}</span>
+        </div>
+        <div className="prerequisite-actions">
+          <button
+            className="btn btn-sm"
+            onClick={(e) => { e.stopPropagation(); handleCheck() }}
+            disabled={checking}
+          >
+            {checking ? <Loader2 size={12} className="spin" /> : <RefreshCw size={12} />}
+            重新检查
+          </button>
+          <ChevronRight size={16} className={`expand-icon ${expanded ? 'expanded' : ''}`} />
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="prerequisite-checks">
+          {checks.map((check, idx) => (
+            <div key={idx} className={`prerequisite-item ${check.passed ? 'passed' : 'failed'}`}>
+              <div className="check-icon">
+                {check.passed ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+              </div>
+              <div className="check-info">
+                <span className="check-name">{check.name}</span>
+                <span className="check-message">{check.message}</span>
+              </div>
+              {!check.passed && check.configKey && (
+                <button
+                  className="btn btn-sm btn-fix"
+                  onClick={() => {
+                    const settingsNav = document.querySelector('[data-nav="http-api"]') as HTMLElement
+                    if (settingsNav) settingsNav.click()
+                  }}
+                >
+                  去设置 <ArrowRight size={12} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 'info') => void }) {
   const store = useAIReplyStore()
   const { dailyStats } = store
@@ -165,6 +266,7 @@ function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'erro
 
   return (
     <div className="dashboard-tab">
+      <PrerequisiteCheckSection />
       <div className="stats-grid">
         <div className="stat-card">
           <MessageSquare size={20} />

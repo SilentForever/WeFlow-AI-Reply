@@ -2066,6 +2066,52 @@ function registerIpcHandlers() {
   ipcMain.handle('aiReply:stop', async () => { aiReplyService.stop(); return { success: true } })
   ipcMain.handle('aiReply:getStatus', async () => aiReplyService.getStatus())
   ipcMain.handle('aiReply:getSSEStatus', async () => aiReplyService.getSSEStatus())
+  ipcMain.handle('aiReply:checkPrerequisites', async () => {
+    const checks: { name: string; passed: boolean; message: string; configKey?: string }[] = []
+
+    const httpApiEnabled = configService?.get('httpApiEnabled' as any)
+    checks.push({
+      name: 'HTTP API 服务',
+      passed: httpApiEnabled === true,
+      message: httpApiEnabled === true ? '已启用' : '未启用，请在设置中开启 HTTP API 服务',
+      configKey: 'httpApiEnabled'
+    })
+
+    const messagePushEnabled = configService?.get('messagePushEnabled' as any)
+    checks.push({
+      name: '消息推送',
+      passed: messagePushEnabled === true,
+      message: messagePushEnabled === true ? '已启用' : '未启用，请在设置中开启消息推送功能',
+      configKey: 'messagePushEnabled'
+    })
+
+    const httpApiToken = String(configService?.get('httpApiToken' as any) || '').trim()
+    checks.push({
+      name: 'API Token',
+      passed: httpApiToken.length > 0,
+      message: httpApiToken.length > 0 ? '已配置' : '未配置，请在设置中设置 HTTP API Token',
+      configKey: 'httpApiToken'
+    })
+
+    const activeModelId = aiReplyService.getActiveModelId()
+    const hasModel = !!activeModelId
+    checks.push({
+      name: 'AI 模型',
+      passed: hasModel,
+      message: hasModel ? `已选择: ${activeModelId}` : '未选择，请在 AI 回复页面配置模型'
+    })
+
+    const triggerRules = aiReplyService.getTriggerRules()
+    const hasContacts = triggerRules?.specificContacts?.length > 0 || triggerRules?.mode === 'all'
+    checks.push({
+      name: '监听联系人',
+      passed: hasContacts,
+      message: hasContacts ? '已配置' : '未配置，请在 AI 回复页面添加监听联系人'
+    })
+
+    const allPassed = checks.every(c => c.passed)
+    return { allPassed, checks }
+  })
   ipcMain.handle('aiReply:getConfig', async () => {
     const cfg = configService?.get('aiReplyConfig' as any) || {}
     return cfg

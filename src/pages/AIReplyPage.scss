@@ -127,6 +127,184 @@
   }
 }
 
+.sse-status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+
+  .sse-label {
+    white-space: nowrap;
+  }
+
+  &.sse-connected {
+    background: rgba(34, 197, 94, 0.1);
+    color: #16a34a;
+  }
+
+  &.sse-connecting {
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+  }
+
+  &.sse-disconnected {
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+  }
+
+  &.sse-error {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger);
+  }
+}
+
+.prerequisite-section {
+  margin-bottom: 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+
+  &.all-passed {
+    border-color: rgba(34, 197, 94, 0.3);
+    background: rgba(34, 197, 94, 0.04);
+  }
+
+  &.has-failures {
+    border-color: rgba(245, 158, 11, 0.3);
+    background: rgba(245, 158, 11, 0.04);
+  }
+
+  .prerequisite-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    cursor: pointer;
+    user-select: none;
+
+    &:hover {
+      background: rgba(0, 0, 0, 0.02);
+    }
+
+    .prerequisite-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 500;
+
+      .icon-success {
+        color: #16a34a;
+      }
+
+      .icon-warning {
+        color: #f59e0b;
+      }
+    }
+
+    .prerequisite-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .expand-icon {
+        transition: transform 0.2s;
+
+        &.expanded {
+          transform: rotate(90deg);
+        }
+      }
+    }
+  }
+
+  .prerequisite-checks {
+    padding: 0 16px 12px;
+  }
+
+  .prerequisite-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 4px;
+    font-size: 12px;
+
+    &.passed {
+      background: rgba(34, 197, 94, 0.06);
+
+      .check-icon {
+        color: #16a34a;
+      }
+
+      .check-name {
+        color: var(--text-secondary);
+      }
+
+      .check-message {
+        color: #16a34a;
+      }
+    }
+
+    &.failed {
+      background: rgba(239, 68, 68, 0.06);
+
+      .check-icon {
+        color: var(--danger);
+      }
+
+      .check-name {
+        color: var(--text-primary);
+        font-weight: 500;
+      }
+
+      .check-message {
+        color: var(--danger);
+      }
+    }
+
+    .check-icon {
+      flex-shrink: 0;
+    }
+
+    .check-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+
+      .check-name {
+        font-weight: 500;
+      }
+
+      .check-message {
+        font-size: 11px;
+      }
+    }
+
+    .btn-fix {
+      flex-shrink: 0;
+      font-size: 11px;
+      padding: 4px 10px;
+      background: var(--primary);
+      color: var(--on-primary);
+      border-color: var(--primary);
+      border-radius: 6px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+
+      &:hover {
+        background: var(--primary-hover);
+      }
+    }
+  }
+}
+
 .btn {
   display: inline-flex;
   align-items: center;

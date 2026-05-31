@@ -653,11 +653,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     fetchChatRecords: (contactId: string, limit: number, startDate?: string, endDate?: string) => ipcRenderer.invoke('aiReply:fetchChatRecords', contactId, limit, startDate, endDate),
     estimateDistillCost: (contactId: string, messageLimit: number, depth: number) => ipcRenderer.invoke('aiReply:estimateDistillCost', contactId, messageLimit, depth),
     getWeFlowAPIConfig: () => ipcRenderer.invoke('aiReply:getWeFlowAPIConfig'),
+    getSSEStatus: () => ipcRenderer.invoke('aiReply:getSSEStatus'),
+    checkPrerequisites: () => ipcRenderer.invoke('aiReply:checkPrerequisites'),
     searchContacts: (keyword: string, limit?: number) => ipcRenderer.invoke('aiReply:searchContacts', keyword, limit),
     onStatusChanged: (callback: (status: string) => void) => {
       const listener = (_: any, status: string) => callback(status)
       ipcRenderer.on('aiReply:statusChanged', listener)
       return () => ipcRenderer.removeListener('aiReply:statusChanged', listener)
+    },
+    onSSEStatusChanged: (callback: (status: any) => void) => {
+      const listener = (_: any, status: any) => callback(status)
+      ipcRenderer.on('aiReply:sseStatusChanged', listener)
+      return () => ipcRenderer.removeListener('aiReply:sseStatusChanged', listener)
     },
     onReplySent: (callback: (log: any) => void) => {
       const listener = (_: any, log: any) => callback(log)
