@@ -54,7 +54,15 @@ export class GeminiAdapter extends BaseAdapter {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '')
-      throw new Error(`Gemini API error (${response.status}): ${text || response.statusText}`)
+      let detail = text || response.statusText
+      try {
+        const errJson = JSON.parse(text)
+        detail = errJson.error?.message || errJson.message || text
+      } catch {}
+      if (response.status === 400 || response.status === 401 || response.status === 403) {
+        throw new Error(`认证失败 (${response.status}): ${detail}。请检查 API Key 是否正确。`)
+      }
+      throw new Error(`Gemini API 请求失败 (${response.status}): ${detail}`)
     }
 
     const data = await response.json()
@@ -80,18 +88,39 @@ export class GeminiAdapter extends BaseAdapter {
         return { success: false, message: 'API Key 未配置' }
       }
 
-      const url = `${cfg.baseUrl.replace(/\/$/, '')}/models?key=${cfg.apiKey}`
-      const response = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(10000) })
+      const baseUrl = cfg.baseUrl.replace(/\/$/, '')
+      const testUrl = `${baseUrl}/models/${cfg.model}:generateContent?key=${cfg.apiKey}`
+      const response = await fetch(testUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'hi' }] }],
+          generationConfig: { maxOutputTokens: 1 }
+        }),
+        signal: AbortSignal.timeout(15000)
+      })
 
       if (response.status === 400 || response.status === 401 || response.status === 403) {
-        return { success: false, message: 'API Key 无效', latencyMs: Date.now() - startTime }
+        const text = await response.text().catch(() => '')
+        let detail = 'API Key 无效'
+        try {
+          const errJson = JSON.parse(text)
+          detail = errJson.error?.message || detail
+        } catch {}
+        return { success: false, message: `认证失败: ${detail}`, latencyMs: Date.now() - startTime }
       }
 
       if (response.ok) {
-        return { success: true, message: '连接成功，Gemini API 可用', latencyMs: Date.now() - startTime }
+        return { success: true, message: `连接成功，模型 "${cfg.model}" 可用`, latencyMs: Date.now() - startTime }
       }
 
-      return { success: false, message: `连接失败: HTTP ${response.status}`, latencyMs: Date.now() - startTime }
+      const text = await response.text().catch(() => '')
+      let detail = text || response.statusText
+      try {
+        const errJson = JSON.parse(text)
+        detail = errJson.error?.message || detail
+      } catch {}
+      return { success: false, message: `连接失败 (${response.status}): ${detail}`, latencyMs: Date.now() - startTime }
     } catch (error) {
       return {
         success: false,

@@ -54,7 +54,15 @@ export class ClaudeAdapter extends BaseAdapter {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '')
-      throw new Error(`Claude API error (${response.status}): ${text || response.statusText}`)
+      let detail = text || response.statusText
+      try {
+        const errJson = JSON.parse(text)
+        detail = errJson.error?.message || errJson.message || text
+      } catch {}
+      if (response.status === 401) {
+        throw new Error(`认证失败 (401): ${detail}。请检查 API Key 是否正确。`)
+      }
+      throw new Error(`Claude API 请求失败 (${response.status}): ${detail}`)
     }
 
     const data = await response.json()

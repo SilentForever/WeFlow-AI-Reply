@@ -30,7 +30,15 @@ export class OpenAIAdapter extends BaseAdapter {
 
     if (!response.ok) {
       const text = await response.text().catch(() => '')
-      throw new Error(`OpenAI API error (${response.status}): ${text || response.statusText}`)
+      let detail = text || response.statusText
+      try {
+        const errJson = JSON.parse(text)
+        detail = errJson.error?.message || errJson.message || errJson.msg || text
+      } catch {}
+      if (response.status === 401) {
+        throw new Error(`认证失败 (401): ${detail}。请检查 API Key 是否正确，以及是否与 API 地址匹配。`)
+      }
+      throw new Error(`API 请求失败 (${response.status}): ${detail}`)
     }
 
     const data = await response.json()
@@ -56,34 +64,36 @@ export class OpenAIAdapter extends BaseAdapter {
         return { success: false, message: 'API Key 未配置' }
       }
 
-      const url = `${cfg.baseUrl.replace(/\/$/, '')}/models`
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${cfg.apiKey}` },
-        signal: AbortSignal.timeout(10000)
+      const baseUrl = cfg.baseUrl.replace(/\/$/, '')
+
+      const testUrl = `${baseUrl}/chat/completions`
+      const testBody = {
+        model: cfg.model,
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 1,
+        stream: false
+      }
+
+      const response = await fetch(testUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cfg.apiKey}`
+        },
+        body: JSON.stringify(testBody),
+        signal: AbortSignal.timeout(15000)
       })
 
       if (!response.ok) {
+        const text = await response.text().catch(() => '')
+        let detail = text || response.statusText
+        try {
+          const errJson = JSON.parse(text)
+          detail = errJson.error?.message || errJson.message || errJson.msg || text
+        } catch {}
         return {
           success: false,
-          message: `连接失败: HTTP ${response.status}`,
-          latencyMs: Date.now() - startTime
-        }
-      }
-
-      let modelExists = false
-      try {
-        const data = await response.json()
-        modelExists = (data.data || []).some((m: any) => m.id === cfg.model)
-      } catch {
-        // 如果解析失败，就假设模型存在
-        modelExists = true
-      }
-
-      if (!modelExists) {
-        return {
-          success: false,
-          message: `模型 "${cfg.model}" 未在可用列表中`,
+          message: `连接失败 (${response.status}): ${detail}`,
           latencyMs: Date.now() - startTime
         }
       }
