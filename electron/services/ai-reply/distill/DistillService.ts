@@ -84,6 +84,7 @@ export class DistillService extends EventEmitter {
     adapter: BaseAdapter,
     progress: DistillProgress
   ): Promise<void> {
+    try {
       const rawRecords = await this.fetchChatRecords(contactId, config.messageLimit || 5000)
       const preprocessed = this.preprocessMessages(rawRecords)
 
