@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { ServiceStatus, ModelConfig, Skill, TriggerRules, ReplyLog, DailyStats, ContactSkillMapping, ModelInfo, DistillProgress, ModelType } from '../types/ai-reply'
 import { DEFAULT_TRIGGER_RULES } from '../types/ai-reply'
 
-const api = () => window.electronAPI?.aiReply
+const api = () => (window.electronAPI?.aiReply as any)
 
 export interface AIReplyState {
   status: ServiceStatus
@@ -266,11 +266,11 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   },
 
   setupListeners: () => {
-    const unsub1 = api()?.onStatusChanged((status) => {
+    const unsub1 = api()?.onStatusChanged((status: any) => {
       set({ status: status as ServiceStatus })
     }) || (() => {})
 
-    const unsub2 = api()?.onReplySent((log) => {
+    const unsub2 = api()?.onReplySent((log: any) => {
       set((state) => ({
         replyLogs: [...state.replyLogs.slice(-99), log as ReplyLog],
         replyLogsTotal: state.replyLogsTotal + 1
