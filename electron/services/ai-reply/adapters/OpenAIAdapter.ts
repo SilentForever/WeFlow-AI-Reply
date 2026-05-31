@@ -91,6 +91,13 @@ export class OpenAIAdapter extends BaseAdapter {
           const errJson = JSON.parse(text)
           detail = errJson.error?.message || errJson.message || errJson.msg || text
         } catch {}
+        if (response.status === 401) {
+          return {
+            success: false,
+            message: `认证失败 (401): ${detail}\n\n可能原因：\n1. API Key 不正确或已过期\n2. API 地址与 Key 不匹配（如 ModelScope 的 Key 不能用于 OpenAI 地址）\n3. ModelScope 用户请确认：baseUrl 应为 https://api-inference.modelscope.cn/v1/ ，Key 为 ModelScope Access Token`,
+            latencyMs: Date.now() - startTime
+          }
+        }
         return {
           success: false,
           message: `连接失败 (${response.status}): ${detail}`,
