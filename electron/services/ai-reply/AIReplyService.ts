@@ -4,6 +4,7 @@ import { join } from 'path'
 import type { WeChatMessage, Skill, ReplyLog, DailyStats, ContactSkillMapping, ModelType, ModelInfo, DistillConfig, DistillProgress, ChatRecord } from '../../../src/types/ai-reply'
 import { DEFAULT_TRIGGER_RULES } from '../../../src/types/ai-reply'
 import { createAdapter, type BaseAdapter } from './adapters'
+import { markdownToPlainText } from './utils/markdownToPlainText'
 import { SkillEngine } from './skill/SkillEngine'
 import { ContextManager } from './core/ContextManager'
 import { TriggerEngine } from './core/TriggerEngine'
@@ -299,7 +300,9 @@ export class AIReplyService extends EventEmitter {
         maxTokens: skill.replyStrategy.maxReplyLength
       })
       const latencyMs = Date.now() - start
-      return { content: result.content, latencyMs }
+      // 转换 Markdown 为纯文本格式
+      const plainContent = markdownToPlainText(result.content)
+      return { content: plainContent, latencyMs }
     } catch (error) {
       return { content: `生成失败: ${error instanceof Error ? error.message : String(error)}` }
     }
@@ -362,6 +365,9 @@ export class AIReplyService extends EventEmitter {
           maxTokens: skill.replyStrategy.maxReplyLength
         })
 
+        // 转换 Markdown 为纯文本格式
+        const plainContent = markdownToPlainText(result.content)
+
         this.contextManager.addMessage(message.contactId, {
           role: 'user',
           content: message.content,
@@ -369,7 +375,7 @@ export class AIReplyService extends EventEmitter {
         })
         this.contextManager.addMessage(message.contactId, {
           role: 'assistant',
-          content: result.content,
+          content: plainContent,
           timestamp: Date.now()
         })
 
@@ -380,7 +386,7 @@ export class AIReplyService extends EventEmitter {
           contactId: message.contactId,
           contactName: message.contactName,
           receivedMessage: message.content,
-          generatedReply: result.content,
+          generatedReply: plainContent,
           skillId: skill.id,
           skillName: skill.name,
           modelId: this.activeModelId,
@@ -406,7 +412,7 @@ export class AIReplyService extends EventEmitter {
             const sendResult = await this.wechatSender.sendTextMessage(
               message.contactId,
               message.contactName,
-              result.content
+              plainContent
             )
             if (!sendResult.success) {
               console.warn('[AIReplyService] Failed to send message:', sendResult.error)
