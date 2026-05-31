@@ -30,9 +30,38 @@ export class DistillService extends EventEmitter {
     adapter: BaseAdapter
   ): Promise<string> {
     const taskId = `distill_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-    const totalRounds = 6
+    const progress = this.createProgress(taskId, config)
+    this.tasks.set(taskId, progress)
+    this.emit('progress', progress)
 
-    const progress: DistillProgress = {
+    await this.runDistill(contactId, config, adapter, progress)
+    return taskId
+  }
+
+  createTask(contactId: string, config: DistillConfig): string {
+    const taskId = `distill_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const progress = this.createProgress(taskId, config)
+    this.tasks.set(taskId, progress)
+    this.emit('progress', progress)
+    return taskId
+  }
+
+  async distillFromChatRecordsAsync(
+    contactId: string,
+    config: DistillConfig,
+    adapter: BaseAdapter,
+    taskId: string
+  ): Promise<string> {
+    const progress = this.tasks.get(taskId)
+    if (!progress) throw new Error(`Task not found: ${taskId}`)
+
+    await this.runDistill(contactId, config, adapter, progress)
+    return taskId
+  }
+
+  private createProgress(taskId: string, config: DistillConfig): DistillProgress {
+    const totalRounds = 6
+    return {
       taskId,
       status: 'preparing',
       currentRound: 0,
@@ -47,11 +76,14 @@ export class DistillService extends EventEmitter {
       ],
       tokenUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
     }
+  }
 
-    this.tasks.set(taskId, progress)
-    this.emit('progress', progress)
-
-    try {
+  private async runDistill(
+    contactId: string,
+    config: DistillConfig,
+    adapter: BaseAdapter,
+    progress: DistillProgress
+  ): Promise<void> {
       const rawRecords = await this.fetchChatRecords(contactId, config.messageLimit || 5000)
       const preprocessed = this.preprocessMessages(rawRecords)
 
@@ -100,7 +132,7 @@ export class DistillService extends EventEmitter {
         this.emit('progress', progress)
 
         const skill = this.generateSkillFiles(roundResults, config)
-        this.results.set(taskId, skill)
+        this.results.set(progress.taskId, skill)
 
         progress.status = 'completed'
         this.emit('progress', progress)
@@ -110,8 +142,6 @@ export class DistillService extends EventEmitter {
       progress.error = error instanceof Error ? error.message : String(error)
       this.emit('progress', progress)
     }
-
-    return taskId
   }
 
   async fetchChatRecords(contactId: string, limit: number, startDate?: string, endDate?: string): Promise<ChatRecord[]> {

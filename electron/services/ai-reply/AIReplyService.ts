@@ -537,7 +537,7 @@ export class AIReplyService extends EventEmitter {
     const targetModelId = params.modelId || this.activeModelId
     const adapter = this.modelAdapters.get(targetModelId)
     if (!adapter) {
-      throw new Error('No active model adapter configured')
+      throw new Error('未配置模型，请先添加模型')
     }
 
     if (!this.sseUrl) {
@@ -551,6 +551,37 @@ export class AIReplyService extends EventEmitter {
       params.config,
       adapter
     )
+  }
+
+  startDistillAsync(params: {
+    contactId: string
+    config: DistillConfig
+    modelId?: string
+  }): string {
+    const targetModelId = params.modelId || this.activeModelId
+    const adapter = this.modelAdapters.get(targetModelId)
+    if (!adapter) {
+      throw new Error('未配置模型，请先添加模型')
+    }
+
+    if (!this.sseUrl) {
+      throw new Error('WeFlow API 未配置，请先在设置中启用 HTTP API')
+    }
+
+    this.distillService.setWeFlowConfig(this.sseUrl.replace('/api/v1/push/messages', ''), this.accessToken)
+
+    const taskId = this.distillService.createTask(params.contactId, params.config)
+
+    this.distillService.distillFromChatRecordsAsync(
+      params.contactId,
+      params.config,
+      adapter,
+      taskId
+    ).catch((err) => {
+      console.error('[AIReplyService] Distill async error:', err)
+    })
+
+    return taskId
   }
 
   cancelDistill(taskId: string): void {

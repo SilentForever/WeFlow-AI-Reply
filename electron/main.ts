@@ -2149,7 +2149,7 @@ function registerIpcHandlers() {
       const contactIds: string[] = params.contactIds || []
       const contactId = contactIds[0] || ''
       if (!contactId) {
-        return { error: 'No contact selected' }
+        return { error: '请先选择好友' }
       }
       const config: any = {
         depth: params.depth >= 5 ? 'deep' : 'standard',
@@ -2164,7 +2164,7 @@ function registerIpcHandlers() {
         skillDescription: `从聊天记录蒸馏生成的角色`,
         messageLimit: params.messageLimit || 5000
       }
-      const taskId = await aiReplyService.startDistill({ contactId, config, modelId: params.modelId })
+      const taskId = aiReplyService.startDistillAsync({ contactId, config, modelId: params.modelId })
       return taskId
     } catch (e: any) {
       return { error: e.message }

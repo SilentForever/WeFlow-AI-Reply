@@ -78,12 +78,16 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
           const result = await window.electronAPI?.aiReply?.getDistillResult(taskId)
           if (result) {
             setCompletedSkill(result as Skill)
+          } else {
+            setError('蒸馏完成但获取结果失败')
           }
         } else if ((p as DistillProgress).status === 'error') {
-          setError((p as DistillProgress).error || '蒸馏失败')
+          setError((p as DistillProgress).error || '蒸馏过程中发生错误')
         }
       }
-    } catch {}
+    } catch (e: any) {
+      console.error('[DistillWizard] pollProgress error:', e)
+    }
   }, [taskId])
 
   useEffect(() => {
@@ -142,6 +146,8 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
         setStep(4)
       } else if (id && (id as any).error) {
         setError((id as any).error || '启动蒸馏失败')
+      } else if (!id) {
+        setError('启动蒸馏失败：未获取到任务ID')
       }
     } catch (e: any) {
       setError(e.message || '启动蒸馏失败')
@@ -317,12 +323,25 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
                     <div className="progress-fill" style={{ width: `${progress.totalRounds > 0 ? Math.round((progress.currentRound / progress.totalRounds) * 100) : 0}%` }} />
                   </div>
                   <div className="progress-info">
-                    <span>{progress.status}</span>
+                    <span>{progress.status === 'preparing' ? '准备中...' : progress.status === 'distilling' ? '蒸馏中...' : progress.status === 'validating' ? '验证中...' : progress.status === 'error' ? '出错了' : progress.status}</span>
                     <span>{progress.totalRounds > 0 ? Math.round((progress.currentRound / progress.totalRounds) * 100) : 0}%</span>
                   </div>
                   <div className="progress-steps">
                     轮次 {progress.currentRound}/{progress.totalRounds}
+                    {progress.roundResults.filter(r => r.status === 'running').length > 0 && (
+                      <span> - {progress.roundResults.find(r => r.status === 'running')?.name === 'expressionDNA' ? '表达DNA提取' :
+                        progress.roundResults.find(r => r.status === 'running')?.name === 'mentalModels' ? '思维模式分析' :
+                        progress.roundResults.find(r => r.status === 'running')?.name === 'decisionHeuristics' ? '决策启发提取' :
+                        progress.roundResults.find(r => r.status === 'running')?.name === 'valuesAndAntiPatterns' ? '价值观与反模式' :
+                        progress.roundResults.find(r => r.status === 'running')?.name === 'honestyBoundaries' ? '坦诚边界分析' :
+                        progress.roundResults.find(r => r.status === 'running')?.name === 'validation' ? '验证与整合' : ''}</span>
+                    )}
                   </div>
+                  {progress.roundResults.some(r => r.status === 'error') && (
+                    <div className="progress-warning">
+                      部分轮次失败（{progress.roundResults.filter(r => r.status === 'error').length}/{progress.totalRounds}），将继续尝试后续步骤
+                    </div>
+                  )}
                 </div>
               )}
               {completedSkill && (
