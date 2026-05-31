@@ -1338,6 +1338,7 @@ export interface ElectronAPI {
     setActiveModel: (modelId: string) => Promise<{ success: boolean }>
     getActiveModelId: () => Promise<string>
     testModel: (modelId: string) => Promise<{ success: boolean; message: string; latencyMs?: number }>
+    testModelWithConfig: (modelConfig: unknown) => Promise<{ success: boolean; message: string; latencyMs?: number }>
     getModels: () => Promise<unknown[]>
     addSkill: (skill: unknown) => Promise<{ success: boolean }>
     removeSkill: (skillId: string) => Promise<{ success: boolean }>
