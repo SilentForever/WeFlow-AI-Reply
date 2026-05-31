@@ -47,8 +47,7 @@ export function markdownToPlainText(md: string): string {
 
   // 11. 去除表格（简单处理）
   // 去除 | ... | 格式
-  text = text.replace(/^\|.*\|$/gm, (line => line.replace(/\|/g, ' ').trim())
-  // 去除表头分隔线
+  text = text.replace(/^\|.*\|$/gm, (line) => line.replace(/\|/g, ' ').trim())
   text = text.replace(/^\s*[-:|]+\s*$/gm, '')
 
   // 12. 清理多余的空行（不超过 2 个
