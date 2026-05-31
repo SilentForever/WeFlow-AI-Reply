@@ -2009,6 +2009,9 @@ function registerIpcHandlers() {
   ipcMain.handle('aiReply:testModel', async (_, modelId: string) => {
     return aiReplyService.testModelConnection(modelId)
   })
+  ipcMain.handle('aiReply:testModelWithConfig', async (_, modelConfig: any) => {
+    return aiReplyService.testModelWithConfig(modelConfig)
+  })
   ipcMain.handle('aiReply:addSkill', async (_, skill: any) => {
     aiReplyService.getSkillEngine().addSkill(skill)
     saveAIReplyConfig()

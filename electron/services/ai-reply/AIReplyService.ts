@@ -267,6 +267,18 @@ export class AIReplyService extends EventEmitter {
     return adapter.testConnection()
   }
 
+  async testModelWithConfig(modelConfig: any): Promise<any> {
+    try {
+      const adapter = createAdapter(modelConfig)
+      if (!adapter) {
+        return { success: false, message: `不支持的模型类型: ${modelConfig.type}` }
+      }
+      return await adapter.testConnection()
+    } catch (error) {
+      return { success: false, message: `测试失败: ${error instanceof Error ? error.message : String(error)}` }
+    }
+  }
+
   async generateTestReply(skillId: string, modelId: string, testMessage: string): Promise<{ content: string; latencyMs?: number }> {
     const skill = this.skillEngine.getSkill(skillId) || this.skillEngine.getSkill('default-assistant')
     if (!skill) return { content: '未找到角色' }

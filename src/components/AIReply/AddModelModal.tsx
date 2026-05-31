@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, XCircle } from 'lucide-react'
+import { X, XCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { useAIReplyStore } from '../../stores/aiReplyStore'
 import type { ModelConfig, ModelType } from '../../types/ai-reply'
 import ModelSelector from './ModelSelector'
@@ -9,6 +9,15 @@ interface AddModelModalProps {
   open: boolean
   onClose: () => void
   editModel?: ModelConfig | null
+}
+
+const PRESETS: Record<string, { label: string; baseUrl: string }> = {
+  openai: { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1' },
+  modelscope: { label: 'ModelScope (魔搭)', baseUrl: 'https://api-inference.modelscope.cn/v1' },
+  deepseek: { label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1' },
+  siliconflow: { label: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1' },
+  zhipu: { label: '智谱 AI', baseUrl: 'https://open.bigmodel.cn/api/paas/v4' },
+  moonshot: { label: 'Moonshot (月之暗面)', baseUrl: 'https://api.moonshot.cn/v1' },
 }
 
 export default function AddModelModal({ open, onClose, editModel }: AddModelModalProps) {
@@ -26,6 +35,9 @@ export default function AddModelModal({ open, onClose, editModel }: AddModelModa
   const [customHeaders, setCustomHeaders] = useState('{}')
   const [customBodyTemplate, setCustomBodyTemplate] = useState('{"messages":"${MESSAGES}","temperature":"${TEMPERATURE}","max_tokens":"${MAX_TOKENS}"}')
   const [customResponsePath, setCustomResponsePath] = useState('choices.0.message.content')
+  const [preset, setPreset] = useState<string>('')
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [addError, setAddError] = useState('')
 
@@ -59,8 +71,10 @@ export default function AddModelModal({ open, onClose, editModel }: AddModelModa
       setCustomHeaders('{}')
       setCustomBodyTemplate('{"messages":"${MESSAGES}","temperature":"${TEMPERATURE}","max_tokens":"${MAX_TOKENS}"}')
       setCustomResponsePath('choices.0.message.content')
+      setPreset('')
     }
     setAddError('')
+    setTestResult(null)
   }, [open, editModel])
 
   if (!open) return null
@@ -130,11 +144,49 @@ export default function AddModelModal({ open, onClose, editModel }: AddModelModa
 
   const handleTypeChange = (t: ModelType) => {
     setType(t)
+    setPreset('')
+    setTestResult(null)
     if (t === 'ollama') setBaseUrl('http://localhost:11434')
     else if (t === 'openai') setBaseUrl('https://api.openai.com/v1')
     else if (t === 'claude') setBaseUrl('https://api.anthropic.com/v1')
     else if (t === 'gemini') setBaseUrl('https://generativelanguage.googleapis.com/v1beta')
     else setBaseUrl('')
+  }
+
+  const handlePresetChange = (p: string) => {
+    setPreset(p)
+    setTestResult(null)
+    if (PRESETS[p]) {
+      setBaseUrl(PRESETS[p].baseUrl)
+    }
+  }
+
+  const handleTestConnection = async () => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const tempConfig: any = {
+        id: `_test_${type}`,
+        name: `_test_${type}`,
+        type,
+        enabled: true,
+        config: type === 'ollama'
+          ? { baseUrl, model: model || 'test', temperature: 0.7, maxTokens: 1 }
+          : type === 'custom'
+            ? { url: customUrl, method: customMethod, headers: JSON.parse(customHeaders || '{}'), bodyTemplate: JSON.parse(customBodyTemplate || '{}'), responsePath: customResponsePath }
+            : { apiKey, baseUrl, model: model || 'test', temperature: 0.7, maxTokens: 1 }
+      }
+      const result = await window.electronAPI?.aiReply?.testModelWithConfig(tempConfig)
+      if (result) {
+        setTestResult(result)
+      } else {
+        setTestResult({ success: false, message: '测试接口不可用' })
+      }
+    } catch (e: any) {
+      setTestResult({ success: false, message: e.message || '测试失败' })
+    } finally {
+      setTesting(false)
+    }
   }
 
   const handleOverlayClick = (e: React.MouseEvent) => {
@@ -169,9 +221,20 @@ export default function AddModelModal({ open, onClose, editModel }: AddModelModa
             <label>名称</label>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="例如: DeepSeek R1" />
           </div>
+          {type === 'openai' && (
+            <div className="form-group">
+              <label>预设服务</label>
+              <select value={preset} onChange={e => handlePresetChange(e.target.value)}>
+                <option value="">自定义地址</option>
+                {Object.entries(PRESETS).map(([key, val]) => (
+                  <option key={key} value={key}>{val.label}</option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="form-group">
             <label>API 地址</label>
-            <input value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
+            <input value={baseUrl} onChange={e => { setBaseUrl(e.target.value); setPreset(''); setTestResult(null) }}
               placeholder={type === 'ollama' ? 'http://localhost:11434' : 'https://api.openai.com/v1'} />
           </div>
           {type === 'custom' && (
@@ -208,7 +271,8 @@ export default function AddModelModal({ open, onClose, editModel }: AddModelModa
           {type !== 'ollama' && type !== 'custom' && (
             <div className="form-group">
               <label>API Key</label>
-              <input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="sk-..." />
+              <input type="password" value={apiKey} onChange={e => { setApiKey(e.target.value); setTestResult(null) }}
+                placeholder={preset === 'modelscope' ? 'ms-xxxx (ModelScope Access Token)' : 'sk-...'} />
             </div>
           )}
           {type !== 'custom' && (
@@ -237,6 +301,12 @@ export default function AddModelModal({ open, onClose, editModel }: AddModelModa
           </div>
         </div>
 
+        {testResult && (
+          <div className={`test-result-inline ${testResult.success ? 'success' : 'error'}`}>
+            {testResult.success ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+            <span>{testResult.message}</span>
+          </div>
+        )}
         {addError && (
           <div className="add-model-error">
             <XCircle size={14} />
@@ -245,6 +315,10 @@ export default function AddModelModal({ open, onClose, editModel }: AddModelModa
         )}
 
         <div className="modal-footer">
+          <button className="btn" onClick={handleTestConnection}
+            disabled={testing || !baseUrl.trim() || (type !== 'ollama' && type !== 'custom' && !apiKey.trim())}>
+            {testing ? <><Loader2 size={14} className="spin" /> 测试中...</> : '测试连接'}
+          </button>
           <button className="btn" onClick={onClose}>取消</button>
           <button className="btn btn-primary" onClick={handleSubmit} disabled={!canSubmit}>
             {submitting ? (isEdit ? '保存中...' : '添加中...') : (isEdit ? '保存' : '添加')}

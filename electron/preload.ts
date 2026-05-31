@@ -616,6 +616,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setActiveModel: (modelId: string) => ipcRenderer.invoke('aiReply:setActiveModel', modelId),
     getActiveModelId: () => ipcRenderer.invoke('aiReply:getActiveModelId'),
     testModel: (modelId: string) => ipcRenderer.invoke('aiReply:testModel', modelId),
+    testModelWithConfig: (modelConfig: any) => ipcRenderer.invoke('aiReply:testModelWithConfig', modelConfig),
     getModels: () => ipcRenderer.invoke('aiReply:getModels'),
     addSkill: (skill: any) => ipcRenderer.invoke('aiReply:addSkill', skill),
     removeSkill: (skillId: string) => ipcRenderer.invoke('aiReply:removeSkill', skillId),

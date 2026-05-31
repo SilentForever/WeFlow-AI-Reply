@@ -35,6 +35,7 @@ function TitleBar({
 
   return (
     <div className="title-bar">
+      <div className="title-drag-region" />
       <div className="title-brand">
         {showLogo && <img src="./logo.png" alt="WeFlow" className="title-logo" />}
         <span className="titles">{title || 'WeFlow'}</span>

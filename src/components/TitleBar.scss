@@ -6,17 +6,29 @@
   justify-content: space-between;
   padding-left: 16px;
   padding-right: 8px;
-  -webkit-app-region: drag;
   flex-shrink: 0;
   gap: 8px;
   position: relative;
   z-index: 2101;
 }
 
+.title-drag-region {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  -webkit-app-region: drag;
+  pointer-events: none;
+  z-index: 0;
+}
+
 .title-brand {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  position: relative;
+  z-index: 1;
 }
 
 .title-logo {
@@ -58,9 +70,8 @@
   align-items: center;
   gap: 2px;
   -webkit-app-region: no-drag;
-  pointer-events: auto;
   position: relative;
-  z-index: 2199;
+  z-index: 2;
 }
 
 .title-window-control-btn {
@@ -77,9 +88,8 @@
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
   -webkit-app-region: no-drag;
-  pointer-events: auto;
   position: relative;
-  z-index: 2200;
+  z-index: 2;
 
   &:hover {
     background: var(--bg-hover);
