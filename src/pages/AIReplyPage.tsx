@@ -19,6 +19,7 @@ import DistillWizard from '../components/AIReply/DistillWizard'
 import SkillDetailEditor from '../components/AIReply/SkillDetailEditor'
 import LogDetailDialog from '../components/AIReply/LogDetailDialog'
 import AddModelModal from '../components/AIReply/AddModelModal'
+import ToastProvider, { useToast } from '../components/AIReply/Toast'
 import './AIReplyPage.scss'
 
 type TabId = 'dashboard' | 'models' | 'skills' | 'triggers' | 'logs'
@@ -34,6 +35,7 @@ const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
 export default function AIReplyPage() {
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
   const store = useAIReplyStore()
+  const { toasts, add: addToast } = useToast()
 
   useEffect(() => {
     store.fetchStatus()
@@ -56,6 +58,7 @@ export default function AIReplyPage() {
 
   return (
     <div className="ai-reply-page">
+      <ToastProvider toasts={toasts} onRemove={(id) => { /* auto-removed by timer */ }} />
       {store.error && (
         <div className="error-notification">
           <XCircle size={18} />
@@ -117,11 +120,11 @@ export default function AIReplyPage() {
       </div>
 
       <div className="ai-reply-content">
-        {activeTab === 'dashboard' && <DashboardTab />}
-        {activeTab === 'models' && <ModelsTab />}
-        {activeTab === 'skills' && <SkillsTab />}
-        {activeTab === 'triggers' && <TriggersTab />}
-        {activeTab === 'logs' && <LogsTab />}
+        {activeTab === 'dashboard' && <DashboardTab toast={addToast} />}
+        {activeTab === 'models' && <ModelsTab toast={addToast} />}
+        {activeTab === 'skills' && <SkillsTab toast={addToast} />}
+        {activeTab === 'triggers' && <TriggersTab toast={addToast} />}
+        {activeTab === 'logs' && <LogsTab toast={addToast} />}
       </div>
     </div>
   )
@@ -138,9 +141,27 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`status-badge ${c.className}`}>{c.label}</span>
 }
 
-function DashboardTab() {
+function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 'info') => void }) {
   const store = useAIReplyStore()
   const { dailyStats } = store
+
+  const handleStart = async () => {
+    try {
+      await store.start()
+      toast('AI 回复服务已启动', 'success')
+    } catch (e: any) {
+      toast(e.message || '启动失败', 'error')
+    }
+  }
+
+  const handleToggleAutoReply = async (checked: boolean) => {
+    try {
+      store.setAutoReplyEnabled(checked)
+      toast(checked ? '自动回复发送已开启' : '自动回复发送已关闭', 'info')
+    } catch (e: any) {
+      toast(e.message || '操作失败', 'error')
+    }
+  }
 
   return (
     <div className="dashboard-tab">
@@ -192,9 +213,9 @@ function DashboardTab() {
           <h3><Send size={16} /> 自动回复发送</h3>
           <div className="auto-reply-toggle">
             <ToggleSwitch
-              checked={store.autoReplyEnabled}
-              onChange={(checked) => store.setAutoReplyEnabled(checked)}
-            />
+            checked={store.autoReplyEnabled}
+            onChange={handleToggleAutoReply}
+          />
             <span className="toggle-label">{store.autoReplyEnabled ? '已开启' : '已关闭'}</span>
           </div>
           {store.autoReplyEnabled && window.electronAPI?.process?.platform !== 'win32' && (
@@ -223,7 +244,7 @@ function DashboardTab() {
       )}
 
       <div className="quick-actions">
-        <button className="btn btn-primary" onClick={() => store.start()} disabled={store.status === 'running'}>
+        <button className="btn btn-primary" onClick={handleStart} disabled={store.status === 'running'}>
           <Play size={14} /> 启动服务
         </button>
         <button className="btn" onClick={() => store.fetchDailyStats()}>
@@ -236,9 +257,18 @@ function DashboardTab() {
   )
 }
 
-function ModelsTab() {
+function ModelsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 'info') => void }) {
   const store = useAIReplyStore()
   const [showAddModal, setShowAddModal] = useState(false)
+
+  const handleRemoveModel = async (modelId: string) => {
+    try {
+      await store.removeModel(modelId)
+      toast('模型已删除', 'success')
+    } catch (e: any) {
+      toast(e.message || '删除失败', 'error')
+    }
+  }
   const [editModel, setEditModel] = useState<ModelConfig | null>(null)
 
   return (
@@ -265,7 +295,7 @@ function ModelsTab() {
               model={model}
               isActive={model.id === store.activeModelId}
               onActivate={() => store.setActiveModel(model.id)}
-              onRemove={() => store.removeModel(model.id)}
+              onRemove={() => handleRemoveModel(model.id)}
               onTest={() => store.testModel(model.id)}
               onEdit={() => { setEditModel(model); setShowAddModal(true) }}
               testResult={store.testResult}
@@ -339,14 +369,35 @@ function ModelCard({
   )
 }
 
-function SkillsTab() {
+function SkillsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 'info') => void }) {
   const store = useAIReplyStore()
+  const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null)
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [showDistillWizard, setShowDistillWizard] = useState(false)
   const [showDetailEditor, setShowDetailEditor] = useState(false)
   const [testMessage, setTestMessage] = useState('')
   const [testSkillId, setTestSkillId] = useState(store.activeSkillId)
   const [testModelId, setTestModelId] = useState(store.activeModelId)
+
+  const handleRemoveSkill = async (skillId: string) => {
+    try {
+      await store.removeSkill(skillId)
+      toast('角色已删除', 'success')
+      if (selectedSkill?.id === skillId) setSelectedSkill(null)
+    } catch (e: any) {
+      toast(e.message || '删除失败', 'error')
+    }
+  }
+
+  const handleSaveSkill = async () => {
+    if (!selectedSkill) return
+    try {
+      await store.addSkill(selectedSkill)
+      toast('角色已保存', 'success')
+    } catch (e: any) {
+      toast(e.message || '保存失败', 'error')
+    }
+  }
 
   const handleImported = (skill: Skill) => {
     store.fetchSkills()
@@ -362,15 +413,25 @@ function SkillsTab() {
   }
 
   const handleSaveSkill = async (skill: Skill) => {
-    await store.addSkill({ ...skill, updatedAt: Date.now() })
-    store.setEditingSkill(null)
-    setShowDetailEditor(false)
-    store.fetchSkills()
+    try {
+      await store.addSkill({ ...skill, updatedAt: Date.now() })
+      store.setEditingSkill(null)
+      setShowDetailEditor(false)
+      store.fetchSkills()
+      toast('角色已保存', 'success')
+    } catch (e: any) {
+      toast(e.message || '保存失败', 'error')
+    }
   }
 
   const handleTest = async () => {
     if (!testMessage.trim()) return
-    await store.generateTestReply(testSkillId, testModelId, testMessage)
+    try {
+      await store.generateTestReply(testSkillId, testModelId, testMessage)
+      toast('测试回复已生成', 'info')
+    } catch (e: any) {
+      toast(e.message || '测试失败', 'error')
+    }
   }
 
   if (showDetailEditor && store.editingSkill) {
@@ -490,7 +551,7 @@ function SkillsTab() {
                 <Edit3 size={14} /> 编辑
               </button>
               {!skill.isBuiltin && (
-                <button className="btn btn-sm btn-danger" onClick={() => store.removeSkill(skill.id)}>
+                <button className="btn btn-sm btn-danger" onClick={() => handleRemoveSkill(skill.id)}>
                   <Trash2 size={14} />
                 </button>
               )}
@@ -513,16 +574,26 @@ function SkillsTab() {
   )
 }
 
-function TriggersTab() {
+function TriggersTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 'info') => void }) {
   const store = useAIReplyStore()
-  const [rules, setRules] = useState<TriggerRules>(store.triggerRules)
+  const [rules, setRules] = useState<TriggerRules>(store.triggerRules || DEFAULT_TRIGGER_RULES)
+  const [hasChanges, setHasChanges] = useState(false)
 
   useEffect(() => {
-    setRules(store.triggerRules)
+    if (store.triggerRules) {
+      setRules(store.triggerRules)
+      setHasChanges(false)
+    }
   }, [store.triggerRules])
 
   const handleSave = async () => {
-    await store.setTriggerRules(rules)
+    try {
+      await store.setTriggerRules(rules)
+      setHasChanges(false)
+      toast('触发规则已保存', 'success')
+    } catch (e: any) {
+      toast(e.message || '保存失败', 'error')
+    }
   }
 
   const updateRule = <K extends keyof TriggerRules>(key: K, value: TriggerRules[K]) => {
@@ -664,14 +735,40 @@ function TriggersTab() {
   )
 }
 
-function LogsTab() {
+function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 'info') => void }) {
   const store = useAIReplyStore()
+  const [selectedLog, setSelectedLog] = useState(store.replyLogs[0] || null)
+  const [showDetail, setShowDetail] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
   const [statusFilter, setStatusFilter] = useState('')
   const [contactFilter, setContactFilter] = useState('')
   const [keywordFilter, setKeywordFilter] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [page, setPage] = useState(1)
   const pageSize = 20
+
+  const handleDeleteLogs = async (ids: string[]) => {
+    try {
+      await store.deleteReplyLogs(ids)
+      toast(`已删除 ${ids.length} 条日志`, 'success')
+      if (selectedLog && ids.includes(selectedLog.id)) {
+        setSelectedLog(store.replyLogs.find(l => !ids.includes(l.id)) || null)
+      }
+    } catch (e: any) {
+      toast(e.message || '删除失败', 'error')
+    }
+  }
+
+  const handleClearAll = async () => {
+    try {
+      await store.clearAllLogs()
+      setConfirmClear(false)
+      toast('所有日志已清空', 'success')
+      setSelectedLog(null)
+    } catch (e: any) {
+      toast(e.message || '清空失败', 'error')
+    }
+  }
 
   useEffect(() => {
     store.fetchReplyLogs(pageSize, (page - 1) * pageSize)
@@ -705,14 +802,13 @@ function LogsTab() {
 
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0) return
-    await store.deleteReplyLogs([...selectedIds])
+    await handleDeleteLogs([...selectedIds])
     setSelectedIds(new Set())
     store.fetchReplyLogs(pageSize, (page - 1) * pageSize)
   }
 
-  const handleClearAll = async () => {
-    await store.clearReplyLogs()
-    setSelectedIds(new Set())
+  const handleConfirmClearAll = async () => {
+    setConfirmClear(true)
   }
 
   return (
@@ -728,7 +824,7 @@ function LogsTab() {
               <Trash2 size={16} /> 删除选中 ({selectedIds.size})
             </button>
           )}
-          <button className="btn btn-danger" onClick={handleClearAll}>
+          <button className="btn btn-danger" onClick={handleConfirmClearAll}>
             <Trash2 size={16} /> 清空全部
           </button>
         </div>
