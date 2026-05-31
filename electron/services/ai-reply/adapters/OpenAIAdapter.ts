@@ -127,18 +127,25 @@ export class OpenAIAdapter extends BaseAdapter {
   async fetchAvailableModels(): Promise<{ id: string; name: string; isLocal: boolean }[]> {
     const cfg = this.getConfig()
     try {
-      const res = await fetch(`${cfg.baseUrl}/models`, {
-        headers: { 'Authorization': `Bearer ${cfg.apiKey}` },
-        signal: AbortSignal.timeout(10000)
+      const baseUrl = cfg.baseUrl.replace(/\/$/, '')
+      const res = await fetch(`${baseUrl}/models`, {
+        headers: cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {},
+        signal: AbortSignal.timeout(15000)
       })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(`HTTP ${res.status}: ${text || res.statusText}`)
+      }
       const data = await res.json()
-      return (data.data || []).map((m: any) => ({
-        id: m.id as string,
-        name: m.id as string,
+      const models = data.data || data.models || []
+      return models.map((m: any) => ({
+        id: (m.id || m.name || m.model) as string,
+        name: (m.id || m.name || m.model) as string,
         isLocal: false
       }))
-    } catch {
-      return []
+    } catch (e) {
+      console.warn('[OpenAIAdapter] fetchAvailableModels failed:', e instanceof Error ? e.message : e)
+      throw e
     }
   }
 }

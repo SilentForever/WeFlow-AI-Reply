@@ -98,15 +98,20 @@ export class OllamaAdapter extends BaseAdapter {
   async fetchAvailableModels(): Promise<{ id: string; name: string; isLocal: boolean }[]> {
     const cfg = this.getConfig()
     try {
-      const res = await fetch(`${cfg.baseUrl}/api/tags`, { signal: AbortSignal.timeout(10000) })
+      const baseUrl = cfg.baseUrl.replace(/\/$/, '')
+      const res = await fetch(`${baseUrl}/api/tags`, { signal: AbortSignal.timeout(15000) })
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`)
+      }
       const data = await res.json()
       return (data.models || []).map((m: any) => ({
         id: m.name as string,
         name: m.name as string,
         isLocal: true
       }))
-    } catch {
-      return []
+    } catch (e) {
+      console.warn('[OllamaAdapter] fetchAvailableModels failed:', e instanceof Error ? e.message : e)
+      throw e
     }
   }
 }

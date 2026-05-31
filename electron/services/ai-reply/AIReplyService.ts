@@ -1,6 +1,8 @@
 import { EventEmitter } from 'events'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join } from 'path'
+import * as http from 'http'
+import * as https from 'https'
 import type { WeChatMessage, Skill, ReplyLog, DailyStats, ContactSkillMapping, ModelType, ModelInfo, DistillConfig, DistillProgress, ChatRecord } from '../../../src/types/ai-reply'
 import { DEFAULT_TRIGGER_RULES } from '../../../src/types/ai-reply'
 import { createAdapter, type BaseAdapter } from './adapters'
@@ -34,6 +36,7 @@ export class AIReplyService extends EventEmitter {
   private dailyStats: DailyStats = { receivedCount: 0, repliedCount: 0, activeContacts: 0, errorCount: 0 }
   private activeContactsToday: Set<string> = new Set()
   private sseConnection: EventSource | null = null
+  private sseAbortController: AbortController | null = null
   private sseUrl: string = ''
   private accessToken: string = ''
   private distillService: DistillService
@@ -466,46 +469,138 @@ export class AIReplyService extends EventEmitter {
         url.searchParams.set('access_token', this.accessToken)
       }
 
-      this.sseConnection = new EventSource(url.toString())
+      this.sseAbortController = new AbortController()
+      const { signal } = this.sseAbortController
 
-      this.sseConnection.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          const isGroup = data.sessionType === 'group' || String(data.sessionId || '').includes('@chatroom')
-          const message: WeChatMessage = {
-            msgId: data.rawid || data.msgId || data.id || `msg_${Date.now()}`,
-            contactId: data.sessionId || data.username || data.contactId || data.talker || '',
-            contactName: data.sourceName || data.nickname || data.contactName || data.talkerName || '',
-            content: data.content || data.text || '',
-            isGroup,
-            isSend: Boolean(data.isSend ?? data.is_send ?? data.isMe ?? false),
-            senderId: data.senderUsername || data.senderId || data.actualSender || '',
-            senderName: data.sourceName || data.senderName || data.actualSenderName || '',
-            timestamp: data.timestamp || data.createTime || Date.now(),
-            type: data.type || 1
-          }
+      const isHttps = url.protocol === 'https:'
+      const requestModule = isHttps ? https : http
 
-          if (message.contactId && message.content) {
-            this.handleIncomingMessage(message)
-          }
-        } catch (e) {
-          console.warn('[AIReplyService] Failed to parse SSE message:', e)
+      const options: (http.RequestOptions | https.RequestOptions) = {
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname + url.search,
+        method: 'GET',
+        headers: {
+          'Accept': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive'
+        },
+        signal
+      }
+
+      const req = requestModule.request(options, (res) => {
+        if (res.statusCode !== 200) {
+          console.warn(`[AIReplyService] SSE connection returned status ${res.statusCode}`)
+          return
         }
-      }
 
-      this.sseConnection.onerror = () => {
-        console.warn('[AIReplyService] SSE connection error, will retry...')
-      }
+        console.log(`[AIReplyService] SSE connected to ${url.toString()}`)
+
+        let buffer = ''
+        let currentEvent = ''
+
+        res.setEncoding('utf-8')
+        res.on('data', (chunk: string) => {
+          if (signal.aborted) return
+          buffer += chunk
+          const lines = buffer.split('\n')
+          buffer = lines.pop() || ''
+
+          for (const line of lines) {
+            const trimmed = line.replace(/\r$/, '')
+
+            if (trimmed === '') {
+              currentEvent = ''
+              continue
+            }
+
+            if (trimmed.startsWith(':')) {
+              continue
+            }
+
+            if (trimmed.startsWith('event:')) {
+              currentEvent = trimmed.slice(6).trim()
+              continue
+            }
+
+            if (trimmed.startsWith('data:')) {
+              const dataStr = trimmed.slice(5).trim()
+              if (currentEvent === 'message.new' || currentEvent === '' || currentEvent === 'message') {
+                this.handleSSEData(dataStr)
+              }
+              currentEvent = ''
+              continue
+            }
+
+            if (!currentEvent && trimmed.startsWith('{')) {
+              this.handleSSEData(trimmed)
+            }
+          }
+        })
+
+        res.on('end', () => {
+          if (!signal.aborted && this.status === 'running') {
+            console.warn('[AIReplyService] SSE connection ended, reconnecting in 3s...')
+            setTimeout(() => {
+              if (this.status === 'running') this.connectSSE()
+            }, 3000)
+          }
+        })
+
+        res.on('error', (err: Error) => {
+          console.warn('[AIReplyService] SSE stream error:', err.message)
+        })
+      })
+
+      req.on('error', (err: Error) => {
+        if (!signal.aborted) {
+          console.warn(`[AIReplyService] SSE request error: ${err.message}, reconnecting in 5s...`)
+          setTimeout(() => {
+            if (this.status === 'running') this.connectSSE()
+          }, 5000)
+        }
+      })
+
+      req.end()
     } catch (error) {
       console.error('[AIReplyService] Failed to connect SSE:', error)
+      setTimeout(() => {
+        if (this.status === 'running') this.connectSSE()
+      }, 5000)
+    }
+  }
+
+  private handleSSEData(dataStr: string): void {
+    try {
+      const data = JSON.parse(dataStr)
+      const isGroup = data.sessionType === 'group' || String(data.sessionId || '').includes('@chatroom')
+      const message: WeChatMessage = {
+        msgId: data.rawid || data.msgId || data.id || `msg_${Date.now()}`,
+        contactId: data.sessionId || data.username || data.contactId || data.talker || '',
+        contactName: data.sourceName || data.nickname || data.contactName || data.talkerName || '',
+        content: data.content || data.text || '',
+        isGroup,
+        isSend: Boolean(data.isSend ?? data.is_send ?? data.isMe ?? false),
+        senderId: data.senderUsername || data.senderId || data.actualSender || '',
+        senderName: data.sourceName || data.senderName || data.actualSenderName || '',
+        timestamp: data.timestamp || data.createTime || Date.now(),
+        type: data.type || 1
+      }
+
+      if (message.contactId && message.content) {
+        this.handleIncomingMessage(message)
+      }
+    } catch (e) {
+      console.warn('[AIReplyService] Failed to parse SSE message:', e)
     }
   }
 
   private disconnectSSE(): void {
-    if (this.sseConnection) {
-      this.sseConnection.close()
-      this.sseConnection = null
+    if (this.sseAbortController) {
+      this.sseAbortController.abort()
+      this.sseAbortController = null
     }
+    this.sseConnection = null
   }
 
   async fetchAvailableModels(modelType: ModelType, baseUrl: string, apiKey?: string): Promise<ModelInfo[]> {
@@ -515,10 +610,10 @@ export class AIReplyService extends EventEmitter {
       type: modelType,
       enabled: true,
       config: modelType === 'ollama'
-        ? { baseUrl, model: '', temperature: 0.7, maxTokens: 2048 }
+        ? { baseUrl: baseUrl.replace(/\/$/, ''), model: '', temperature: 0.7, maxTokens: 2048 }
         : modelType === 'custom'
           ? { url: baseUrl, method: 'POST', headers: {}, bodyTemplate: {}, responsePath: '' }
-          : { apiKey: apiKey || '', baseUrl, model: '', temperature: 0.7, maxTokens: 2048 }
+          : { apiKey: apiKey || '', baseUrl: baseUrl.replace(/\/$/, ''), model: '', temperature: 0.7, maxTokens: 2048 }
     }
 
     try {
@@ -530,8 +625,8 @@ export class AIReplyService extends EventEmitter {
         type: modelType,
         isLocal: m.isLocal
       }))
-    } catch {
-      return []
+    } catch (e) {
+      throw new Error(`获取模型列表失败: ${e instanceof Error ? e.message : String(e)}`)
     }
   }
 
