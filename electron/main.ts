@@ -1865,31 +1865,71 @@ function registerIpcHandlers() {
   const aiReplySkillsDir = join(app.getPath('userData'), 'ai-reply', 'skills')
   const aiReplyService = new AIReplyService(aiReplySkillsDir)
 
+  // 获取 SSE 连接所需的配置信息
+  function getSSEConfig(): { sseUrl: string; accessToken: string } {
+    const httpApiEnabled = configService?.get('httpApiEnabled' as any)
+    const httpApiPort = configService?.get('httpApiPort' as any) || 5031
+    const httpApiHost = String(configService?.get('httpApiHost' as any) || '127.0.0.1').trim() || '127.0.0.1'
+    const httpApiToken = String(configService?.get('httpApiToken' as any) || '').trim()
+
+    // 如果 httpService 已启动，使用它的方法获取 URL
+    if (httpService && httpService.isRunning()) {
+      const sseUrl = httpService.getMessagePushStreamUrl()
+      return { sseUrl, accessToken: httpApiToken }
+    }
+
+    // 否则使用配置文件中的值
+    const sseUrl = `http://${httpApiHost}:${httpApiPort}/api/v1/push/messages`
+    return { sseUrl, accessToken: httpApiToken }
+  }
+
+  // 获取当前用户昵称
+  async function fetchSelfNickname(): Promise<string> {
+    const httpApiEnabled = configService?.get('httpApiEnabled' as any)
+    const httpApiPort = configService?.get('httpApiPort' as any) || 5031
+    const httpApiHost = String(configService?.get('httpApiHost' as any) || '127.0.0.1').trim() || '127.0.0.1'
+    const httpApiToken = String(configService?.get('httpApiToken' as any) || '').trim()
+
+    if (!httpApiEnabled) return ''
+
+    try {
+      const profileUrl = `http://${httpApiHost}:${httpApiPort}/api/v1/profile`
+      const res = await fetch(profileUrl, {
+        headers: { 'Authorization': `Bearer ${httpApiToken}` }
+      })
+      if (res.ok) {
+        const profileData = await res.json()
+        return profileData.nickname || profileData.nickName || profileData.name || ''
+      }
+    } catch {}
+    return ''
+  }
+
+  // 获取当前用户 wxid
+  function getSelfWxid(): string {
+    return String(configService?.get('myWxid' as any) || '').trim()
+  }
+
   // 用 configService 存储模型配置
   let modelConfigs: any[] = []
   function loadAIReplyConfig() {
     const cfg = configService?.get('aiReplyConfig' as any) || {}
     modelConfigs = cfg.models || []
 
-    const httpApiEnabled = configService?.get('httpApiEnabled' as any)
-    const httpApiPort = configService?.get('httpApiPort' as any) || 5031
-    const httpApiHost = configService?.get('httpApiHost' as any) || '127.0.0.1'
-    const httpApiToken = configService?.get('httpApiToken' as any) || ''
+    // 始终设置 SSE 配置（即使 httpApiEnabled 未启用，也先设置 URL）
+    const { sseUrl, accessToken } = getSSEConfig()
+    aiReplyService.setSSEConfig(sseUrl, accessToken)
 
-    if (httpApiEnabled) {
-      const sseUrl = `http://${httpApiHost}:${httpApiPort}/api/v1/push/messages`
-      aiReplyService.setSSEConfig(sseUrl, httpApiToken)
+    // 设置自身 wxid，用于防止自回复循环
+    const selfWxid = getSelfWxid()
+    aiReplyService.setSelfWxid(selfWxid)
 
-      const profileUrl = `http://${httpApiHost}:${httpApiPort}/api/v1/profile`
-      fetch(profileUrl, {
-        headers: { 'Authorization': `Bearer ${httpApiToken}` }
-      }).then(res => res.json()).then((profileData: any) => {
-        const nickname = profileData.nickname || profileData.nickName || profileData.name || ''
-        if (nickname) {
-          aiReplyService.setSelfNickname(nickname)
-        }
-      }).catch(() => {})
-    }
+    // 异步获取昵称
+    fetchSelfNickname().then(nickname => {
+      if (nickname) {
+        aiReplyService.setSelfNickname(nickname)
+      }
+    })
 
     if (modelConfigs.length > 0) {
       modelConfigs.forEach(mc => {
@@ -1905,7 +1945,7 @@ function registerIpcHandlers() {
     if (cfg.triggerRules) {
       aiReplyService.setTriggerRules(cfg.triggerRules)
     }
-    if (cfg.autoReplyEnabled) {
+    if (cfg.autoReplyEnabled !== undefined) {
       aiReplyService.setAutoReplyEnabled(cfg.autoReplyEnabled)
     }
     if (cfg.dailyStats) {
@@ -1957,15 +1997,75 @@ function registerIpcHandlers() {
   aiReplyService.on('distillProgress', (progress: any) => {
     aiReplySender('aiReply:distillProgress', progress)
   })
+  aiReplyService.on('sseStatusChanged', (status: any) => {
+    aiReplySender('aiReply:sseStatusChanged', status)
+  })
 
+  // AI 回复启动前检查
   ipcMain.handle('aiReply:start', async () => {
-    try { await aiReplyService.start(); return { success: true } }
-    catch (e: any) { return { success: false, error: e.message } }
+    // 前置条件检查
+    const checks: { name: string; passed: boolean; message: string }[] = []
+
+    // 检查 1: httpApiEnabled 必须启用
+    const httpApiEnabled = configService?.get('httpApiEnabled' as any)
+    if (httpApiEnabled !== true) {
+      checks.push({
+        name: 'HTTP API',
+        passed: false,
+        message: '请先在设置中启用 HTTP API 服务'
+      })
+    }
+
+    // 检查 2: messagePushEnabled 必须启用
+    const messagePushEnabled = configService?.get('messagePushEnabled' as any)
+    if (messagePushEnabled !== true) {
+      checks.push({
+        name: '消息推送',
+        passed: false,
+        message: '请先在设置中启用消息推送功能'
+      })
+    }
+
+    // 检查 3: httpApiToken 不能为空
+    const httpApiToken = String(configService?.get('httpApiToken' as any) || '').trim()
+    if (!httpApiToken) {
+      checks.push({
+        name: 'API Token',
+        passed: false,
+        message: '请先在设置中配置 HTTP API Token'
+      })
+    }
+
+    // 如果有检查失败，返回详细的错误信息
+    const failedChecks = checks.filter(c => !c.passed)
+    if (failedChecks.length > 0) {
+      return {
+        success: false,
+        error: failedChecks.map(c => c.message).join('；'),
+        checks
+      }
+    }
+
+    // 确保 SSE 配置是最新的
+    const { sseUrl, accessToken } = getSSEConfig()
+    aiReplyService.setSSEConfig(sseUrl, accessToken)
+
+    // 更新自身 wxid
+    const selfWxid = getSelfWxid()
+    aiReplyService.setSelfWxid(selfWxid)
+
+    try {
+      await aiReplyService.start()
+      return { success: true, checks: checks.map(c => ({ ...c, passed: true })) }
+    } catch (e: any) {
+      return { success: false, error: e.message, checks }
+    }
   })
   ipcMain.handle('aiReply:pause', async () => { aiReplyService.pause(); return { success: true } })
   ipcMain.handle('aiReply:resume', async () => { aiReplyService.resume(); return { success: true } })
   ipcMain.handle('aiReply:stop', async () => { aiReplyService.stop(); return { success: true } })
   ipcMain.handle('aiReply:getStatus', async () => aiReplyService.getStatus())
+  ipcMain.handle('aiReply:getSSEStatus', async () => aiReplyService.getSSEStatus())
   ipcMain.handle('aiReply:getConfig', async () => {
     const cfg = configService?.get('aiReplyConfig' as any) || {}
     return cfg

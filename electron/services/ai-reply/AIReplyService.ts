@@ -16,6 +16,7 @@ import { WeChatSender } from './core/WeChatSender'
 
 export interface AIReplyServiceEvents {
   statusChanged: (status: string) => void
+  sseStatusChanged: (status: 'disconnected' | 'connecting' | 'connected' | 'error') => void
   messageReceived: (message: WeChatMessage) => void
   replySent: (log: ReplyLog) => void
   replyError: (error: { contactId: string; error: string }) => void
@@ -39,12 +40,19 @@ export class AIReplyService extends EventEmitter {
   private sseAbortController: AbortController | null = null
   private sseUrl: string = ''
   private accessToken: string = ''
+  private selfWxid: string = ''
+  private recentSentMessages: Map<string, number> = new Map()
+  private sseStatus: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected'
+  private sseError: string = ''
   private distillService: DistillService
   private wechatSender: WeChatSender
   private autoReplyEnabled: boolean = false
   private logsFilePath: string
   private skillsDir: string
   private processingContacts: Set<string> = new Set()
+
+  private messageBuffer: Map<string, { messages: WeChatMessage[], timer: NodeJS.Timeout, contactName: string, isGroup: boolean }> = new Map()
+  private messageBufferDelay: number = 2000
 
   constructor(skillsDir: string) {
     super()
@@ -219,6 +227,17 @@ export class AIReplyService extends EventEmitter {
     this.triggerEngine.setSelfNickname(name)
   }
 
+  setSelfWxid(wxid: string): void {
+    this.selfWxid = wxid
+  }
+
+  getSSEStatus(): { status: string; error?: string } {
+    return {
+      status: this.sseStatus,
+      error: this.sseError || undefined
+    }
+  }
+
   getSkillEngine(): SkillEngine {
     return this.skillEngine
   }
@@ -321,35 +340,70 @@ export class AIReplyService extends EventEmitter {
       return
     }
 
-    if (this.processingContacts.has(message.contactId)) {
-      return
-    }
-    this.processingContacts.add(message.contactId)
-
     this.dailyStats.receivedCount++
     this.activeContactsToday.add(message.contactId)
     this.emit('messageReceived', message)
 
-    try {
-      const triggerResult = this.triggerEngine.shouldReply(message)
-      if (!triggerResult.shouldReply) return
+    const existingEntry = this.messageBuffer.get(message.contactId)
+    if (existingEntry) {
+      clearTimeout(existingEntry.timer)
+      existingEntry.messages.push(message)
+      console.log(`[AIReplyService] 消息缓冲: ${message.contactId} 有 ${existingEntry.messages.length} 条消息等待合并`)
+    } else {
+      console.log(`[AIReplyService] 开始缓冲消息: ${message.contactId}`)
+      const timer = setTimeout(() => {
+        this.processBufferedMessages(message.contactId)
+      }, this.messageBufferDelay)
+      this.messageBuffer.set(message.contactId, {
+        messages: [message],
+        timer,
+        contactName: message.contactName,
+        isGroup: message.isGroup
+      })
+    }
+  }
 
-      const skillId = this.contactSkillMappings.get(message.contactId) || this.activeSkillId
+  private async processBufferedMessages(contactId: string): Promise<void> {
+    const entry = this.messageBuffer.get(contactId)
+    if (!entry) return
+
+    this.messageBuffer.delete(contactId)
+
+    if (this.processingContacts.has(contactId)) {
+      return
+    }
+    this.processingContacts.add(contactId)
+
+    try {
+      const triggerResult = this.triggerEngine.shouldReply(entry.messages[0])
+      if (!triggerResult.shouldReply) {
+        this.processingContacts.delete(contactId)
+        return
+      }
+
+      const skillId = this.contactSkillMappings.get(contactId) || this.activeSkillId
       const skill = this.skillEngine.getSkill(skillId)
-      if (!skill) return
+      if (!skill) {
+        this.processingContacts.delete(contactId)
+        return
+      }
 
       const adapter = this.modelAdapters.get(this.activeModelId)
       if (!adapter) {
-        this.emit('replyError', { contactId: message.contactId, error: '未配置模型' })
+        this.emit('replyError', { contactId, error: '未配置模型' })
+        this.processingContacts.delete(contactId)
         return
       }
 
       const startTime = Date.now()
+      const mergedContent = entry.messages.map(m => m.content).join('\n')
+      const contactName = entry.contactName
+      const isGroup = entry.isGroup
 
       try {
-        const { messages: context, summary } = this.contextManager.getContextWithSummary(message.contactId)
+        const { messages: context, summary } = this.contextManager.getContextWithSummary(contactId)
         const relationship = skill.selfMemory.relationships.find(
-          r => r.contactId === message.contactId
+          r => r.contactId === contactId
         )
 
         const systemPrompt = this.skillEngine.generateSystemPrompt(skill, {
@@ -361,22 +415,21 @@ export class AIReplyService extends EventEmitter {
         const messages = [
           { role: 'system' as const, content: systemPrompt },
           ...context,
-          { role: 'user' as const, content: message.content }
+          { role: 'user' as const, content: mergedContent }
         ]
 
         const result = await adapter.generate(messages, {
           maxTokens: skill.replyStrategy.maxReplyLength
         })
 
-        // 转换 Markdown 为纯文本格式
         const plainContent = markdownToPlainText(result.content)
 
-        this.contextManager.addMessage(message.contactId, {
+        this.contextManager.addMessage(contactId, {
           role: 'user',
-          content: message.content,
-          timestamp: message.timestamp
+          content: mergedContent,
+          timestamp: entry.messages[0].timestamp
         })
-        this.contextManager.addMessage(message.contactId, {
+        this.contextManager.addMessage(contactId, {
           role: 'assistant',
           content: plainContent,
           timestamp: Date.now()
@@ -386,9 +439,9 @@ export class AIReplyService extends EventEmitter {
         const log: ReplyLog = {
           id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           timestamp: Date.now(),
-          contactId: message.contactId,
-          contactName: message.contactName,
-          receivedMessage: message.content,
+          contactId: contactId,
+          contactName: contactName,
+          receivedMessage: mergedContent,
           generatedReply: plainContent,
           skillId: skill.id,
           skillName: skill.name,
@@ -413,17 +466,21 @@ export class AIReplyService extends EventEmitter {
         if (this.autoReplyEnabled && this.wechatSender.isEnabled()) {
           try {
             const sendResult = await this.wechatSender.sendTextMessage(
-              message.contactId,
-              message.contactName,
-              plainContent
+              contactId,
+              contactName,
+              plainContent,
+              isGroup
             )
-            if (!sendResult.success) {
+            if (sendResult.success) {
+              const sentKey = `${contactId}:${plainContent}`
+              this.recentSentMessages.set(sentKey, Date.now())
+            } else {
               console.warn('[AIReplyService] Failed to send message:', sendResult.error)
-              this.emit('replyError', { contactId: message.contactId, error: `消息发送失败: ${sendResult.error}` })
+              this.emit('replyError', { contactId: contactId, error: `消息发送失败: ${sendResult.error}` })
             }
           } catch (sendErr: any) {
             console.warn('[AIReplyService] Exception sending message:', sendErr)
-            this.emit('replyError', { contactId: message.contactId, error: `消息发送异常: ${sendErr.message}` })
+            this.emit('replyError', { contactId: contactId, error: `消息发送异常: ${sendErr.message}` })
           }
         }
 
@@ -432,9 +489,9 @@ export class AIReplyService extends EventEmitter {
         const log: ReplyLog = {
           id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           timestamp: Date.now(),
-          contactId: message.contactId,
-          contactName: message.contactName,
-          receivedMessage: message.content,
+          contactId: contactId,
+          contactName: contactName,
+          receivedMessage: mergedContent,
           generatedReply: '',
           skillId: skill.id,
           skillName: skill.name,
@@ -448,10 +505,10 @@ export class AIReplyService extends EventEmitter {
         this.replyLogs.push(log)
         this.saveLogsToDisk()
         this.dailyStats.errorCount++
-        this.emit('replyError', { contactId: message.contactId, error: log.errorMessage || 'Unknown error' })
+        this.emit('replyError', { contactId: contactId, error: log.errorMessage || 'Unknown error' })
       }
     } finally {
-      this.processingContacts.delete(message.contactId)
+      this.processingContacts.delete(contactId)
     }
   }
 
@@ -460,8 +517,15 @@ export class AIReplyService extends EventEmitter {
 
     if (!this.sseUrl) {
       console.warn('[AIReplyService] SSE URL not configured, skipping connection')
+      this.sseStatus = 'error'
+      this.sseError = 'SSE URL 未配置'
+      this.emit('sseStatusChanged', this.sseStatus)
       return
     }
+
+    this.sseStatus = 'connecting'
+    this.sseError = ''
+    this.emit('sseStatusChanged', this.sseStatus)
 
     try {
       const url = new URL(this.sseUrl)
@@ -491,10 +555,16 @@ export class AIReplyService extends EventEmitter {
       const req = requestModule.request(options, (res) => {
         if (res.statusCode !== 200) {
           console.warn(`[AIReplyService] SSE connection returned status ${res.statusCode}`)
+          this.sseStatus = 'error'
+          this.sseError = `HTTP ${res.statusCode}`
+          this.emit('sseStatusChanged', this.sseStatus)
           return
         }
 
         console.log(`[AIReplyService] SSE connected to ${url.toString()}`)
+        this.sseStatus = 'connected'
+        this.sseError = ''
+        this.emit('sseStatusChanged', this.sseStatus)
 
         let buffer = ''
         let currentEvent = ''
@@ -541,20 +611,31 @@ export class AIReplyService extends EventEmitter {
         res.on('end', () => {
           if (!signal.aborted && this.status === 'running') {
             console.warn('[AIReplyService] SSE connection ended, reconnecting in 3s...')
+            this.sseStatus = 'connecting'
+            this.emit('sseStatusChanged', this.sseStatus)
             setTimeout(() => {
               if (this.status === 'running') this.connectSSE()
             }, 3000)
+          } else {
+            this.sseStatus = 'disconnected'
+            this.emit('sseStatusChanged', this.sseStatus)
           }
         })
 
         res.on('error', (err: Error) => {
           console.warn('[AIReplyService] SSE stream error:', err.message)
+          this.sseStatus = 'error'
+          this.sseError = err.message
+          this.emit('sseStatusChanged', this.sseStatus)
         })
       })
 
       req.on('error', (err: Error) => {
         if (!signal.aborted) {
           console.warn(`[AIReplyService] SSE request error: ${err.message}, reconnecting in 5s...`)
+          this.sseStatus = 'error'
+          this.sseError = err.message
+          this.emit('sseStatusChanged', this.sseStatus)
           setTimeout(() => {
             if (this.status === 'running') this.connectSSE()
           }, 5000)
@@ -564,6 +645,9 @@ export class AIReplyService extends EventEmitter {
       req.end()
     } catch (error) {
       console.error('[AIReplyService] Failed to connect SSE:', error)
+      this.sseStatus = 'error'
+      this.sseError = error instanceof Error ? error.message : String(error)
+      this.emit('sseStatusChanged', this.sseStatus)
       setTimeout(() => {
         if (this.status === 'running') this.connectSSE()
       }, 5000)
@@ -574,11 +658,36 @@ export class AIReplyService extends EventEmitter {
     try {
       const data = JSON.parse(dataStr)
       const isGroup = data.sessionType === 'group' || String(data.sessionId || '').includes('@chatroom')
+      const sessionId = data.sessionId || data.username || data.contactId || data.talker || ''
+      const content = data.content || data.text || ''
+
+      // 自回复循环防护：检查是否是发给自己的消息
+      if (!isGroup && this.selfWxid && sessionId === this.selfWxid) {
+        console.log('[AIReplyService] Skipping self-message (私聊发给自己的消息)')
+        return
+      }
+
+      // 自回复循环防护：检查是否是最近自己发送的消息
+      const sentKey = `${sessionId}:${content}`
+      const sentTime = this.recentSentMessages.get(sentKey)
+      if (sentTime && Date.now() - sentTime < 10000) {
+        console.log('[AIReplyService] Skipping self-sent message (最近发送的消息)')
+        return
+      }
+
+      // 清理过期的发送记录（保留 30 秒内的记录）
+      const now = Date.now()
+      for (const [key, timestamp] of this.recentSentMessages.entries()) {
+        if (now - timestamp > 30000) {
+          this.recentSentMessages.delete(key)
+        }
+      }
+
       const message: WeChatMessage = {
         msgId: data.rawid || data.msgId || data.id || `msg_${Date.now()}`,
-        contactId: data.sessionId || data.username || data.contactId || data.talker || '',
+        contactId: sessionId,
         contactName: data.sourceName || data.nickname || data.contactName || data.talkerName || '',
-        content: data.content || data.text || '',
+        content,
         isGroup,
         isSend: Boolean(data.isSend ?? data.is_send ?? data.isMe ?? false),
         senderId: data.senderUsername || data.senderId || data.actualSender || '',
@@ -601,6 +710,10 @@ export class AIReplyService extends EventEmitter {
       this.sseAbortController = null
     }
     this.sseConnection = null
+    if (this.sseStatus !== 'disconnected') {
+      this.sseStatus = 'disconnected'
+      this.emit('sseStatusChanged', this.sseStatus)
+    }
   }
 
   async fetchAvailableModels(modelType: ModelType, baseUrl: string, apiKey?: string): Promise<ModelInfo[]> {

@@ -10,6 +10,8 @@ export interface SendResult {
 
 export class WeChatSender {
   private enabled: boolean = false
+  private maxRetries: number = 3
+  private retryDelay: number = 1000
 
   setEnabled(enabled: boolean): void {
     this.enabled = enabled
@@ -19,7 +21,7 @@ export class WeChatSender {
     return this.enabled
   }
 
-  async sendTextMessage(contactId: string, contactName: string, message: string): Promise<SendResult> {
+  async sendTextMessage(contactId: string, contactName: string, message: string, isGroup = false): Promise<SendResult> {
     if (!this.enabled) {
       return { success: false, error: '消息发送功能未启用' }
     }
@@ -28,32 +30,20 @@ export class WeChatSender {
       return { success: false, error: '消息发送功能仅支持 Windows 系统' }
     }
 
-    try {
-      const escapedMessage = message
-        .replace(/\+/g, '{+}')
-        .replace(/\^/g, '{^}')
-        .replace(/%/g, '{%}')
-        .replace(/~/g, '{~}')
-        .replace(/\(/g, '{(}')
-        .replace(/\)/g, '{)}')
-        .replace(/{/g, '{{}')
-        .replace(/}/g, '{}}')
-        .replace(/'/g, "''")
-        .replace(/\n/g, '{Enter}')
-        .replace(/\r/g, '')
+    let lastError = ''
 
-      const escapedName = contactName
-        .replace(/\+/g, '{+}')
-        .replace(/\^/g, '{^}')
-        .replace(/%/g, '{%}')
-        .replace(/~/g, '{~}')
-        .replace(/\(/g, '{(}')
-        .replace(/\)/g, '{)}')
-        .replace(/{/g, '{{}')
-        .replace(/}/g, '{}}')
-        .replace(/'/g, "''")
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      try {
+        let finalMessage = message
 
-      const script = `
+        if (isGroup && contactName) {
+          finalMessage = `@${contactName} ${message}`
+        }
+
+        const escapedMessage = this.escapeForSendKeys(finalMessage)
+        const escapedName = this.escapeForSendKeys(contactName)
+
+        const script = `
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
@@ -63,37 +53,86 @@ public class Win32 {
   public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")]
   public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")]
+  public static extern bool IsIconic(IntPtr hWnd);
+  [DllImport("user32.dll")]
+  public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")]
+  public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 }
 "@
 
-$wechat = Get-Process -Name 'WeChat' -ErrorAction SilentlyContinue
-if (-not $wechat) {
-  Write-Output 'ERROR:WeChat not running'
+function Activate-WeChat {
+  $wechat = Get-Process -Name 'WeChat' -ErrorAction SilentlyContinue
+  if (-not $wechat) {
+    Write-Output 'ERROR:WeChat not running'
+    return $false
+  }
+
+  $mainWindow = $wechat.MainWindowHandle
+  if ($mainWindow -eq [IntPtr]::Zero) {
+    Write-Output 'ERROR:WeChat window not found'
+    return $false
+  }
+
+  [Win32]::ShowWindow($mainWindow, 9)
+  Start-Sleep -Milliseconds 400
+
+  $prevForeground = [Win32]::GetForegroundWindow()
+  [Win32]::SetForegroundWindow($mainWindow)
+  Start-Sleep -Milliseconds 400
+
+  $currentForeground = [Win32]::GetForegroundWindow()
+  if ($currentForeground -ne $mainWindow) {
+    Write-Output 'WARNING:Window activation may have failed'
+  }
+
+  return $true
+}
+
+function Send-UsingClipboard {
+  param(
+    [string]$Text
+  )
+
+  $originalClipboard = [System.Windows.Forms.Clipboard]::GetText()
+  try {
+    [System.Windows.Forms.Clipboard]::SetText($Text)
+    Start-Sleep -Milliseconds 100
+
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Start-Sleep -Milliseconds 200
+
+    return $true
+  }
+  finally {
+    Start-Sleep -Milliseconds 100
+    if ($originalClipboard) {
+      try {
+        [System.Windows.Forms.Clipboard]::SetText($originalClipboard)
+      } catch {}
+    }
+  }
+}
+
+$activated = Activate-WeChat
+if (-not $activated) {
   exit 1
 }
 
-$mainWindow = $wechat.MainWindowHandle
-if ($mainWindow -eq [IntPtr]::Zero) {
-  Write-Output 'ERROR:WeChat window not found'
-  exit 1
-}
-
-[Win32]::ShowWindow($mainWindow, 9)
-Start-Sleep -Milliseconds 300
-[Win32]::SetForegroundWindow($mainWindow)
-Start-Sleep -Milliseconds 300
+Start-Sleep -Milliseconds 200
 
 [System.Windows.Forms.SendKeys]::SendWait('^f')
-Start-Sleep -Milliseconds 500
+Start-Sleep -Milliseconds 400
 
-[System.Windows.Forms.SendKeys]::SendWait('${escapedName}')
-Start-Sleep -Milliseconds 800
+Send-UsingClipboard -Text '${escapedName}'
+Start-Sleep -Milliseconds 600
 
 [System.Windows.Forms.SendKeys]::SendWait('{Enter}')
-Start-Sleep -Milliseconds 500
+Start-Sleep -Milliseconds 400
 
-[System.Windows.Forms.SendKeys]::SendWait('${escapedMessage}')
-Start-Sleep -Milliseconds 200
+Send-UsingClipboard -Text '${escapedMessage}'
+Start-Sleep -Milliseconds 300
 
 [System.Windows.Forms.SendKeys]::SendWait('{Enter}')
 Start-Sleep -Milliseconds 300
@@ -101,21 +140,59 @@ Start-Sleep -Milliseconds 300
 Write-Output 'OK'
 `
 
-      const { stdout, stderr } = await execAsync(
-        `powershell -NoProfile -NonInteractive -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`,
-        { timeout: 15000, windowsHide: true }
-      )
+        const { stdout, stderr } = await execAsync(
+          `powershell -NoProfile -NonInteractive -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`,
+          { timeout: 20000, windowsHide: true }
+        )
 
-      const output = (stdout || '').trim()
-      if (output === 'OK') {
-        return { success: true }
-      } else if (output.startsWith('ERROR:')) {
-        return { success: false, error: output.substring(6) }
-      } else {
-        return { success: false, error: stderr?.trim() || 'Unknown error' }
+        const output = (stdout || '').trim()
+        if (output === 'OK') {
+          return { success: true }
+        } else if (output.startsWith('ERROR:')) {
+          lastError = output.substring(6)
+          if (attempt < this.maxRetries) {
+            console.log(`[WeChatSender] 发送失败 (尝试 ${attempt}/${this.maxRetries}): ${lastError}，${this.retryDelay}ms 后重试...`)
+            await new Promise(resolve => setTimeout(resolve, this.retryDelay))
+            continue
+          }
+          return { success: false, error: lastError }
+        } else {
+          lastError = stderr?.trim() || 'Unknown error'
+          if (attempt < this.maxRetries) {
+            console.log(`[WeChatSender] 发送异常 (尝试 ${attempt}/${this.maxRetries}): ${lastError}，${this.retryDelay}ms 后重试...`)
+            await new Promise(resolve => setTimeout(resolve, this.retryDelay))
+            continue
+          }
+          return { success: false, error: lastError }
+        }
+      } catch (e: any) {
+        lastError = e.message || 'Failed to send message'
+        if (attempt < this.maxRetries) {
+          console.log(`[WeChatSender] 发送异常 (尝试 ${attempt}/${this.maxRetries}): ${lastError}，${this.retryDelay}ms 后重试...`)
+          await new Promise(resolve => setTimeout(resolve, this.retryDelay))
+          continue
+        }
+        return { success: false, error: lastError }
       }
-    } catch (e: any) {
-      return { success: false, error: e.message || 'Failed to send message' }
     }
+
+    return { success: false, error: lastError }
+  }
+
+  private escapeForSendKeys(text: string): string {
+    return text
+      .replace(/\\/g, '\\\\')
+      .replace(/\+/g, '{+}')
+      .replace(/\^/g, '{^}')
+      .replace(/%/g, '{%}')
+      .replace(/~/g, '{~}')
+      .replace(/\(/g, '{(}')
+      .replace(/\)/g, '{)}')
+      .replace(/{/g, '{{}')
+      .replace(/}/g, '{}}')
+      .replace(/'/g, "''")
+      .replace(/"/g, '\"')
+      .replace(/\n/g, '{Enter}')
+      .replace(/\r/g, '')
   }
 }
