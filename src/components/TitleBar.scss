@@ -58,6 +58,9 @@
   align-items: center;
   gap: 2px;
   -webkit-app-region: no-drag;
+  pointer-events: auto;
+  position: relative;
+  z-index: 2199;
 }
 
 .title-window-control-btn {
@@ -73,6 +76,10 @@
   justify-content: center;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
+  -webkit-app-region: no-drag;
+  pointer-events: auto;
+  position: relative;
+  z-index: 2200;
 
   &:hover {
     background: var(--bg-hover);
