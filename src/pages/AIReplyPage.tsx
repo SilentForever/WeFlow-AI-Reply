@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAIReplyStore } from '../stores/aiReplyStore'
-import type { ModelConfig, ModelType, Skill, TriggerRules, OllamaConfig, OpenAICompatibleConfig } from '../types/ai-reply'
+import type { ModelConfig, ModelType, Skill, TriggerRules, OllamaConfig, OpenAICompatibleConfig, ReplyLog } from '../types/ai-reply'
 import { DEFAULT_TRIGGER_RULES } from '../types/ai-reply'
 import {
   Bot, Play, Pause, Square, Plus, Trash2, Settings, TestTube,
@@ -389,16 +389,6 @@ function SkillsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' 
     }
   }
 
-  const handleSaveSkill = async () => {
-    if (!selectedSkill) return
-    try {
-      await store.addSkill(selectedSkill)
-      toast('角色已保存', 'success')
-    } catch (e: any) {
-      toast(e.message || '保存失败', 'error')
-    }
-  }
-
   const handleImported = (skill: Skill) => {
     store.fetchSkills()
   }
@@ -737,7 +727,7 @@ function TriggersTab({ toast }: { toast: (msg: string, type?: 'success' | 'error
 
 function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 'info') => void }) {
   const store = useAIReplyStore()
-  const [selectedLog, setSelectedLog] = useState(store.replyLogs[0] || null)
+  const [selectedLog, setSelectedLog] = useState<ReplyLog | null>(store.replyLogs[0] || null)
   const [showDetail, setShowDetail] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
   const [statusFilter, setStatusFilter] = useState('')
@@ -761,7 +751,7 @@ function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 
 
   const handleClearAll = async () => {
     try {
-      await store.clearAllLogs()
+      await store.clearReplyLogs()
       setConfirmClear(false)
       toast('所有日志已清空', 'success')
       setSelectedLog(null)
