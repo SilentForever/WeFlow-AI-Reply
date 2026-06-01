@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAIReplyStore } from '../stores/aiReplyStore'
 import type { ModelConfig, ModelType, Skill, TriggerRules, OllamaConfig, OpenAICompatibleConfig, ReplyLog } from '../types/ai-reply'
 import { DEFAULT_TRIGGER_RULES } from '../types/ai-reply'
@@ -168,6 +169,7 @@ function SSEStatusIndicator({ status, error }: { status: string; error: string }
 
 function PrerequisiteCheckSection() {
   const store = useAIReplyStore()
+  const navigate = useNavigate()
   const [expanded, setExpanded] = useState(true)
   const [checking, setChecking] = useState(false)
 
@@ -187,6 +189,20 @@ function PrerequisiteCheckSection() {
   if (!checks || checks.length === 0) return null
 
   const failedCount = checks.filter(c => !c.passed).length
+
+  const handleNavigateToSettings = (configKey: string) => {
+    const settingsTabMap: Record<string, string> = {
+      httpApiEnabled: 'api',
+      messagePushEnabled: 'api',
+      httpApiToken: 'api'
+    }
+    const targetTab = settingsTabMap[configKey]
+    if (targetTab) {
+      navigate('/settings', {
+        state: { initialTab: targetTab as any }
+      })
+    }
+  }
 
   return (
     <div className={`prerequisite-section ${allPassed ? 'all-passed' : 'has-failures'}`}>
@@ -226,10 +242,7 @@ function PrerequisiteCheckSection() {
               {!check.passed && check.configKey && (
                 <button
                   className="btn btn-sm btn-fix"
-                  onClick={() => {
-                    const settingsNav = document.querySelector('[data-nav="http-api"]') as HTMLElement
-                    if (settingsNav) settingsNav.click()
-                  }}
+                  onClick={() => handleNavigateToSettings(check.configKey!)}
                 >
                   去设置 <ArrowRight size={12} />
                 </button>
