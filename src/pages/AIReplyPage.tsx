@@ -77,7 +77,7 @@ export default function AIReplyPage() {
           <h2>AI 自动回复</h2>
         </div>
         <div className="header-right">
-          <SSEStatusIndicator status={store.sseStatus} error={store.sseError} />
+          <SSEStatusIndicator status={store.sseStatus} error={store.sseError} serviceStatus={store.status} />
           <StatusBadge status={store.status} />
           <div className="service-controls">
             {store.status === 'stopped' && (
@@ -150,7 +150,7 @@ function StatusBadge({ status }: { status: string }) {
   return <span className={`status-badge ${c.className}`}>{c.label}</span>
 }
 
-function SSEStatusIndicator({ status, error }: { status: string; error: string }) {
+function SSEStatusIndicator({ status, error, serviceStatus }: { status: string; error: string; serviceStatus: string }) {
   const config: Record<string, { icon: React.ElementType; label: string; className: string }> = {
     connected: { icon: Wifi, label: 'SSE 已连接', className: 'sse-connected' },
     connecting: { icon: Loader2, label: 'SSE 连接中...', className: 'sse-connecting' },
@@ -159,10 +159,14 @@ function SSEStatusIndicator({ status, error }: { status: string; error: string }
   }
   const c = config[status] || config.disconnected
   const Icon = c.icon
+  const label = serviceStatus === 'stopped' && status === 'disconnected' ? 'SSE 待启动' : c.label
+  const tooltip = serviceStatus === 'stopped' && status === 'disconnected'
+    ? '启动服务后将自动连接 SSE 接收新消息'
+    : (error || c.label)
   return (
-    <span className={`sse-status-indicator ${c.className}`} title={error || c.label}>
+    <span className={`sse-status-indicator ${c.className}`} title={tooltip}>
       <Icon size={14} className={status === 'connecting' ? 'spin' : ''} />
-      <span className="sse-label">{c.label}</span>
+      <span className="sse-label">{label}</span>
     </span>
   )
 }

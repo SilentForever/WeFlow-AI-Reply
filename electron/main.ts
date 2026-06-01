@@ -2102,7 +2102,11 @@ function registerIpcHandlers() {
     })
 
     const triggerRules = aiReplyService.getTriggerRules()
-    const hasContacts = triggerRules?.specificContacts?.length > 0 || triggerRules?.mode === 'all'
+    const listenMode = triggerRules?.listenMode
+    const hasContacts = listenMode === 'all'
+      || (listenMode === 'specific' && (triggerRules?.targetContacts?.length > 0))
+      || (listenMode === 'whitelist' && (triggerRules?.whitelist?.length > 0))
+      || (listenMode === 'blacklist')
     checks.push({
       name: '监听联系人',
       passed: hasContacts,
