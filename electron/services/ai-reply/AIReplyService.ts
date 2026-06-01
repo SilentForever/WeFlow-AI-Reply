@@ -46,7 +46,7 @@ export class AIReplyService extends EventEmitter {
   private sseError: string = ''
   private distillService: DistillService
   private wechatSender: WeChatSender
-  private autoReplyEnabled: boolean = false
+  private autoReplyEnabled: boolean = true
   private logsFilePath: string
   private skillsDir: string
   private processingContacts: Set<string> = new Set()

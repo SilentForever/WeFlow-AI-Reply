@@ -105,7 +105,7 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   logFilter: { status: '', contactId: '', keyword: '' },
   editingSkill: null,
   selectedLogDetail: null,
-  autoReplyEnabled: false,
+  autoReplyEnabled: true,
   sseStatus: 'disconnected',
   sseError: '',
   prerequisiteChecks: null,
