@@ -20,6 +20,8 @@ export interface AIReplyServiceEvents {
   messageReceived: (message: WeChatMessage) => void
   replySent: (log: ReplyLog) => void
   replyError: (error: { contactId: string; error: string }) => void
+  processingStarted: (info: { contactId: string; contactName: string; stage: string }) => void
+  processingCompleted: (info: { contactId: string; contactName: string; success: boolean }) => void
 }
 
 export class AIReplyService extends EventEmitter {
@@ -379,16 +381,22 @@ export class AIReplyService extends EventEmitter {
     this.processingContacts.add(contactId)
 
     try {
+      this.emit('processingStarted', { contactId, contactName: entry.contactName, stage: 'trigger' })
+
       const triggerResult = this.triggerEngine.shouldReply(entry.messages[0])
       if (!triggerResult.shouldReply) {
         this.processingContacts.delete(contactId)
+        this.emit('processingCompleted', { contactId, contactName: entry.contactName, success: false })
         return
       }
+
+      this.emit('processingStarted', { contactId, contactName: entry.contactName, stage: 'generating' })
 
       const skillId = this.contactSkillMappings.get(contactId) || this.activeSkillId
       const skill = this.skillEngine.getSkill(skillId)
       if (!skill) {
         this.processingContacts.delete(contactId)
+        this.emit('processingCompleted', { contactId, contactName: entry.contactName, success: false })
         return
       }
 
@@ -396,6 +404,7 @@ export class AIReplyService extends EventEmitter {
       if (!adapter) {
         this.emit('replyError', { contactId, error: '未配置模型' })
         this.processingContacts.delete(contactId)
+        this.emit('processingCompleted', { contactId, contactName: entry.contactName, success: false })
         return
       }
 
@@ -452,6 +461,7 @@ export class AIReplyService extends EventEmitter {
         let sendError: string | undefined
 
         if (this.autoReplyEnabled && this.wechatSender.isEnabled()) {
+          this.emit('processingStarted', { contactId, contactName, stage: 'sending' })
           try {
             const sendResult = await this.wechatSender.sendTextMessage(
               contactId,
@@ -498,6 +508,7 @@ export class AIReplyService extends EventEmitter {
           this.dailyStats.repliedCount++
         }
         this.emit('replySent', log)
+        this.emit('processingCompleted', { contactId, contactName, success: !sendError })
 
       } catch (error) {
         const latencyMs = Date.now() - startTime
@@ -522,6 +533,7 @@ export class AIReplyService extends EventEmitter {
         this.saveLogsToDisk()
         this.dailyStats.errorCount++
         this.emit('replyError', { contactId: contactId, error: log.errorMessage || 'Unknown error' })
+        this.emit('processingCompleted', { contactId, contactName, success: false })
       }
     } finally {
       this.processingContacts.delete(contactId)

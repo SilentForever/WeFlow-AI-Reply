@@ -32,6 +32,7 @@ export interface AIReplyState {
   sseError: string
   prerequisiteChecks: { name: string; passed: boolean; message: string; configKey?: string }[] | null
   prerequisitesAllPassed: boolean | null
+  processingContacts: { contactId: string; contactName: string; stage: string; startedAt: number }[]
 
   start: () => Promise<void>
   pause: () => Promise<void>
@@ -110,6 +111,7 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   sseError: '',
   prerequisiteChecks: null,
   prerequisitesAllPassed: null,
+  processingContacts: [],
 
   start: async () => {
     set({ isLoading: true, error: null })
@@ -293,11 +295,45 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
       }
     }) || (() => {})
 
+    const unsub5 = api()?.onProcessingStarted?.((info: any) => {
+      set((state) => {
+        const existing = state.processingContacts.filter(p => p.contactId !== info.contactId)
+        return {
+          processingContacts: [...existing, {
+            contactId: info.contactId,
+            contactName: info.contactName,
+            stage: info.stage,
+            startedAt: Date.now()
+          }]
+        }
+      })
+    }) || (() => {})
+
+    const unsub6 = api()?.onProcessingCompleted?.((info: any) => {
+      set((state) => ({
+        processingContacts: state.processingContacts.filter(p => p.contactId !== info.contactId)
+      }))
+    }) || (() => {})
+
+    const staleTimer = setInterval(() => {
+      set((state) => {
+        const now = Date.now()
+        const active = state.processingContacts.filter(p => now - p.startedAt < 120000)
+        if (active.length !== state.processingContacts.length) {
+          return { processingContacts: active }
+        }
+        return state
+      })
+    }, 10000)
+
     return () => {
       unsub1()
       unsub2()
       unsub3()
       unsub4()
+      unsub5()
+      unsub6()
+      clearInterval(staleTimer)
     }
   },
 

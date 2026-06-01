@@ -265,6 +265,13 @@ function PrerequisiteCheckSection() {
 function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 'info') => void }) {
   const store = useAIReplyStore()
   const { dailyStats } = store
+  const [, setTick] = useState(0)
+
+  useEffect(() => {
+    if (store.processingContacts.length === 0) return
+    const timer = setInterval(() => setTick(t => t + 1), 1000)
+    return () => clearInterval(timer)
+  }, [store.processingContacts.length])
 
   const handleStart = async () => {
     try {
@@ -345,6 +352,27 @@ function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'erro
           )}
         </div>
       </div>
+
+      {store.processingContacts.length > 0 && (
+        <div className="processing-indicator">
+          <div className="processing-header">
+            <Loader2 size={14} className="spin" />
+            <span>正在处理 {store.processingContacts.length} 条消息</span>
+          </div>
+          <div className="processing-list">
+            {store.processingContacts.map(p => (
+              <div key={p.contactId} className="processing-item">
+                <Loader2 size={12} className="spin" />
+                <span className="processing-name">{p.contactName || p.contactId || '未知联系人'}</span>
+                <span className="processing-stage">
+                  {p.stage === 'trigger' ? '检查触发规则' : p.stage === 'generating' ? '生成回复中' : p.stage === 'sending' ? '发送中' : p.stage}
+                </span>
+                <span className="processing-time">{Math.round((Date.now() - p.startedAt) / 1000)}s</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {store.replyLogs.length > 0 && (
         <div className="recent-logs">

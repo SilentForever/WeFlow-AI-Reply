@@ -685,6 +685,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const listener = (_: any, progress: any) => callback(progress)
       ipcRenderer.on('aiReply:distillProgress', listener)
       return () => ipcRenderer.removeListener('aiReply:distillProgress', listener)
+    },
+    onProcessingStarted: (callback: (info: any) => void) => {
+      const listener = (_: any, info: any) => callback(info)
+      ipcRenderer.on('aiReply:processingStarted', listener)
+      return () => ipcRenderer.removeListener('aiReply:processingStarted', listener)
+    },
+    onProcessingCompleted: (callback: (info: any) => void) => {
+      const listener = (_: any, info: any) => callback(info)
+      ipcRenderer.on('aiReply:processingCompleted', listener)
+      return () => ipcRenderer.removeListener('aiReply:processingCompleted', listener)
     }
   }
 })

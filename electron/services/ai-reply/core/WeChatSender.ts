@@ -1,5 +1,9 @@
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import { writeFile, unlink, mkdir } from 'fs/promises'
+import { join } from 'path'
+import { tmpdir } from 'os'
+import { existsSync } from 'fs'
 
 const execAsync = promisify(exec)
 
@@ -21,30 +25,17 @@ export class WeChatSender {
     return this.enabled
   }
 
-  async sendTextMessage(contactId: string, contactName: string, message: string, isGroup = false): Promise<SendResult> {
-    if (!this.enabled) {
-      return { success: false, error: '消息发送功能未启用' }
+  private async writeTempScript(contactName: string, message: string): Promise<string> {
+    const tmpDir = join(tmpdir(), 'weflow-send')
+    if (!existsSync(tmpDir)) {
+      await mkdir(tmpDir, { recursive: true })
     }
+    const scriptPath = join(tmpDir, `send_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.ps1`)
 
-    if (process.platform !== 'win32') {
-      return { success: false, error: '消息发送功能仅支持 Windows 系统' }
-    }
+    const escapedName = contactName.replace(/'/g, "''")
+    const escapedMessage = message.replace(/'/g, "''")
 
-    let lastError = ''
-
-    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
-      try {
-        let finalMessage = message
-
-        if (isGroup && contactName) {
-          finalMessage = `@${contactName} ${message}`
-        }
-
-        const escapedMessage = this.escapeForSendKeys(finalMessage)
-        const escapedName = this.escapeForSendKeys(contactName)
-
-        const script = `
-Add-Type -AssemblyName System.Windows.Forms
+    const script = `Add-Type -AssemblyName System.Windows.Forms
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
@@ -95,7 +86,11 @@ function Send-UsingClipboard {
     [string]$Text
   )
 
-  $originalClipboard = [System.Windows.Forms.Clipboard]::GetText()
+  $originalClipboard = $null
+  try {
+    $originalClipboard = [System.Windows.Forms.Clipboard]::GetText()
+  } catch {}
+
   try {
     [System.Windows.Forms.Clipboard]::SetText($Text)
     Start-Sleep -Milliseconds 100
@@ -140,8 +135,41 @@ Start-Sleep -Milliseconds 300
 Write-Output 'OK'
 `
 
+    await writeFile(scriptPath, script, 'utf-8')
+    return scriptPath
+  }
+
+  async sendTextMessage(contactId: string, contactName: string, message: string, isGroup = false): Promise<SendResult> {
+    if (!this.enabled) {
+      return { success: false, error: '消息发送功能未启用' }
+    }
+
+    if (process.platform !== 'win32') {
+      return { success: false, error: '消息发送功能仅支持 Windows 系统' }
+    }
+
+    let lastError = ''
+    let finalMessage = message
+
+    if (isGroup && contactName) {
+      finalMessage = `@${contactName} ${message}`
+    }
+
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      let scriptPath = ''
+      try {
+        scriptPath = await this.writeTempScript(contactName, finalMessage)
+        if (!scriptPath) {
+          lastError = 'Failed to create temp script'
+          if (attempt < this.maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, this.retryDelay))
+            continue
+          }
+          return { success: false, error: lastError }
+        }
+
         const { stdout, stderr } = await execAsync(
-          `powershell -NoProfile -NonInteractive -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`,
+          `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${scriptPath}"`,
           { timeout: 20000, windowsHide: true }
         )
 
@@ -156,8 +184,10 @@ Write-Output 'OK'
             continue
           }
           return { success: false, error: lastError }
+        } else if (output.includes('OK')) {
+          return { success: true }
         } else {
-          lastError = stderr?.trim() || 'Unknown error'
+          lastError = stderr?.trim() || output || 'Unknown error'
           if (attempt < this.maxRetries) {
             console.log(`[WeChatSender] 发送异常 (尝试 ${attempt}/${this.maxRetries}): ${lastError}，${this.retryDelay}ms 后重试...`)
             await new Promise(resolve => setTimeout(resolve, this.retryDelay))
@@ -173,26 +203,13 @@ Write-Output 'OK'
           continue
         }
         return { success: false, error: lastError }
+      } finally {
+        if (scriptPath) {
+          try { await unlink(scriptPath) } catch {}
+        }
       }
     }
 
     return { success: false, error: lastError }
-  }
-
-  private escapeForSendKeys(text: string): string {
-    return text
-      .replace(/\\/g, '\\\\')
-      .replace(/\+/g, '{+}')
-      .replace(/\^/g, '{^}')
-      .replace(/%/g, '{%}')
-      .replace(/~/g, '{~}')
-      .replace(/\(/g, '{(}')
-      .replace(/\)/g, '{)}')
-      .replace(/{/g, '{{}')
-      .replace(/}/g, '{}}')
-      .replace(/'/g, "''")
-      .replace(/"/g, '\"')
-      .replace(/\n/g, '{Enter}')
-      .replace(/\r/g, '')
   }
 }

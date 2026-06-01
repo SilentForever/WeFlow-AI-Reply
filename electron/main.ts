@@ -2044,6 +2044,12 @@ function registerIpcHandlers() {
   aiReplyService.on('sseStatusChanged', (status: any) => {
     aiReplySender('aiReply:sseStatusChanged', status)
   })
+  aiReplyService.on('processingStarted', (info: any) => {
+    aiReplySender('aiReply:processingStarted', info)
+  })
+  aiReplyService.on('processingCompleted', (info: any) => {
+    aiReplySender('aiReply:processingCompleted', info)
+  })
 
   // AI 回复启动前检查
   ipcMain.handle('aiReply:start', async () => {
