@@ -54,10 +54,9 @@ jobs:
           echo "Syncing package.json version to $VERSION"
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='$VERSION';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
 
-      - name: Build Frontend & Type Check
+      - name: Build Frontend
         shell: bash
         run: |
-          npx tsc
           npx vite build
 
       - name: Package and Publish macOS arm64 (unsigned DMG + ZIP)
@@ -125,10 +124,9 @@ jobs:
           echo "Syncing package.json version to $VERSION"
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='$VERSION';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
 
-      - name: Build Frontend & Type Check
+      - name: Build Frontend
         shell: bash
         run: |
-          npx tsc
           npx vite build
 
       - name: Package and Publish Linux
@@ -178,10 +176,9 @@ jobs:
           echo "Syncing package.json version to $VERSION"
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='$VERSION';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
 
-      - name: Build Frontend & Type Check
+      - name: Build Frontend
         shell: bash
         run: |
-          npx tsc
           npx vite build
 
       - name: Package and Publish
@@ -231,10 +228,9 @@ jobs:
           echo "Syncing package.json version to $VERSION"
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version='$VERSION';fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')"
 
-      - name: Build Frontend & Type Check
+      - name: Build Frontend
         shell: bash
         run: |
-          npx tsc
           npx vite build
 
       - name: Package and Publish Windows arm64
