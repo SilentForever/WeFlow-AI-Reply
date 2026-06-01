@@ -376,7 +376,7 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
                   <div className="progress-steps">
                     轮次 {progress.currentRound}/{progress.totalRounds}
                     {progress.roundResults.filter((r: any) => r.status === 'running').length > 0 && (
-                      <>
+                      <span>{(() => {
                         const name = progress.roundResults.find((r: any) => r.status === 'running')?.name || ''
                         const nameMap: Record<string, string> = {
                           expressionDNA: '表达DNA提取',
