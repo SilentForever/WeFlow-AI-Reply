@@ -47,7 +47,7 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
 
   useEffect(() => {
     if (store.models.length > 0 && !selectedModelId) {
-      const active = store.models.find(m => m.id === store.activeModelId)
+      const active = store.models.find((m: any) => m.id === store.activeModelId)
       setSelectedModelId(active ? active.id : store.models[0].id)
     }
   }, [store.models, store.activeModelId, selectedModelId])
@@ -278,7 +278,7 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
                 <div className="form-group">
                   <label>选择模型</label>
                   <select value={selectedModelId} onChange={e => setSelectedModelId(e.target.value)}>
-                    {store.models.map(m => (
+                    {store.models.map((m: any) => (
                       <option key={m.id} value={m.id}>
                         {m.name} ({m.type})
                       </option>

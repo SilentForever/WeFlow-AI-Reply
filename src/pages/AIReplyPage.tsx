@@ -86,7 +86,7 @@ export default function AIReplyPage() {
                 if (store.prerequisitesAllPassed) {
                   store.start()
                 } else {
-                  const failed = (store.prerequisiteChecks || []).filter(c => !c.passed).map(c => c.name)
+                  const failed = (store.prerequisiteChecks || []).filter((c: any) => !c.passed).map((c: any) => c.name)
                   store.setError?.(`无法启动：${failed.join('、')} 未满足，请先完成配置`)
                 }
               }} disabled={store.isLoading}>
@@ -195,7 +195,7 @@ function PrerequisiteCheckSection() {
 
   if (!checks || checks.length === 0) return null
 
-  const failedCount = checks.filter(c => !c.passed).length
+  const failedCount = checks.filter((c: any) => !c.passed).length
 
   const handleNavigateToSettings = (configKey: string) => {
     const settingsTabMap: Record<string, string> = {
@@ -237,7 +237,7 @@ function PrerequisiteCheckSection() {
 
       {expanded && (
         <div className="prerequisite-checks">
-          {checks.map((check, idx) => (
+          {checks.map((check: any, idx: number) => (
             <div key={idx} className={`prerequisite-item ${check.passed ? 'passed' : 'failed'}`}>
               <div className="check-icon">
                 {check.passed ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
@@ -328,11 +328,11 @@ function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'erro
       <div className="quick-info">
         <div className="info-section">
           <h3><Brain size={16} /> 当前模型</h3>
-          <p>{store.models.find(m => m.id === store.activeModelId)?.name || '未配置'}</p>
+          <p>{store.models.find((m: any) => m.id === store.activeModelId)?.name || '未配置'}</p>
         </div>
         <div className="info-section">
           <h3><UserCircle size={16} /> 当前角色</h3>
-          <p>{store.skills.find(s => s.id === store.activeSkillId)?.name || '默认助手'}</p>
+          <p>{store.skills.find((s: any) => s.id === store.activeSkillId)?.name || '默认助手'}</p>
         </div>
         <div className="info-section">
           <h3><Zap size={16} /> 触发规则</h3>
@@ -361,7 +361,7 @@ function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'erro
             <button className="message-flow-clear" onClick={() => useAIReplyStore.setState({ messageFlow: [] })}>清空</button>
           </div>
           <div className="message-flow-list">
-            {store.messageFlow.slice(0, 15).map((item, i) => {
+            {store.messageFlow.slice(0, 15).map((item: any, i: number) => {
               const stageConfig: Record<string, { icon: string; color: string; label: string }> = {
                 received:   { icon: '📩', color: '#3b82f6', label: '收到消息' },
                 buffering:  { icon: '⏳', color: '#f59e0b', label: '缓冲中' },
