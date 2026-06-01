@@ -978,10 +978,15 @@ function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 
             </label>
           </div>
           <div className="log-list">
-            {filteredLogs.map(log => (
+            {filteredLogs.map(log => {
+              const statusClass = !log.success ? 'log-error' : (!log.sent ? 'log-warning' : '')
+              const statusLabel = !log.success
+                ? '失败'
+                : (log.sent ? '已发送' : '未发送')
+              return (
               <div
                 key={log.id}
-                className={`log-item ${log.success ? '' : 'log-error'} ${selectedIds.has(log.id) ? 'selected' : ''}`}
+                className={`log-item ${statusClass} ${selectedIds.has(log.id) ? 'selected' : ''}`}
               >
                 <input
                   type="checkbox"
@@ -993,6 +998,9 @@ function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 
                 <div className="log-content" onClick={() => store.setSelectedLogDetail(log)}>
                   <div className="log-header">
                     <span className="log-contact">{log.contactName}</span>
+                    <span className={`log-status-badge ${statusClass}`}>
+                      {statusLabel}
+                    </span>
                     <span className="log-meta">
                       {log.skillName} · {log.modelName} · {log.latencyMs}ms
                     </span>
@@ -1005,7 +1013,8 @@ function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 
                   </div>
                 </div>
               </div>
-            ))}
+              )
+            })}
           </div>
           {totalPages > 1 && (
             <div className="log-pagination">

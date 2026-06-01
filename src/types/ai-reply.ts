@@ -186,6 +186,7 @@ export interface ReplyLog {
   modelName: string
   latencyMs: number
   success: boolean
+  sent: boolean
   errorMessage?: string
 }
 

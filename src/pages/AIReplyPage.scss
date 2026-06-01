@@ -833,6 +833,11 @@
     background: rgba(239, 68, 68, 0.05);
   }
 
+  &.log-warning {
+    border-color: #f59e0b;
+    background: rgba(245, 158, 11, 0.05);
+  }
+
   &.selected {
     border-color: var(--primary);
     background: rgba(16, 163, 127, 0.08);
@@ -866,6 +871,24 @@
     .log-meta {
       font-size: 11px;
       color: var(--text-secondary);
+    }
+
+    .log-status-badge {
+      font-size: 11px;
+      padding: 1px 8px;
+      border-radius: 10px;
+      font-weight: 500;
+      white-space: nowrap;
+
+      &.log-error {
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--danger);
+      }
+
+      &.log-warning {
+        background: rgba(245, 158, 11, 0.1);
+        color: #b45309;
+      }
     }
 
     .log-time {

@@ -436,6 +436,41 @@ export class AIReplyService extends EventEmitter {
         })
 
         const latencyMs = Date.now() - startTime
+
+        if (skill.replyStrategy.responseDelay.min > 0) {
+          const delay = Math.random() *
+            (skill.replyStrategy.responseDelay.max - skill.replyStrategy.responseDelay.min) +
+            skill.replyStrategy.responseDelay.min
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
+
+        let sent = false
+        let sendError: string | undefined
+
+        if (this.autoReplyEnabled && this.wechatSender.isEnabled()) {
+          try {
+            const sendResult = await this.wechatSender.sendTextMessage(
+              contactId,
+              contactName,
+              plainContent,
+              isGroup
+            )
+            if (sendResult.success) {
+              sent = true
+              const sentKey = `${contactId}:${plainContent}`
+              this.recentSentMessages.set(sentKey, Date.now())
+            } else {
+              sendError = `发送失败: ${sendResult.error}`
+              console.warn('[AIReplyService] Failed to send message:', sendResult.error)
+              this.emit('replyError', { contactId: contactId, error: sendError })
+            }
+          } catch (sendErr: any) {
+            sendError = `发送异常: ${sendErr.message}`
+            console.warn('[AIReplyService] Exception sending message:', sendErr)
+            this.emit('replyError', { contactId: contactId, error: sendError })
+          }
+        }
+
         const log: ReplyLog = {
           id: `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           timestamp: Date.now(),
@@ -448,41 +483,17 @@ export class AIReplyService extends EventEmitter {
           modelId: this.activeModelId,
           modelName: adapter.getModelInfo().name,
           latencyMs,
-          success: true
+          success: sent || !this.autoReplyEnabled,
+          sent,
+          errorMessage: sendError
         }
 
         this.replyLogs.push(log)
         this.saveLogsToDisk()
-        this.dailyStats.repliedCount++
+        if (sent) {
+          this.dailyStats.repliedCount++
+        }
         this.emit('replySent', log)
-
-        if (skill.replyStrategy.responseDelay.min > 0) {
-          const delay = Math.random() *
-            (skill.replyStrategy.responseDelay.max - skill.replyStrategy.responseDelay.min) +
-            skill.replyStrategy.responseDelay.min
-          await new Promise(resolve => setTimeout(resolve, delay))
-        }
-
-        if (this.autoReplyEnabled && this.wechatSender.isEnabled()) {
-          try {
-            const sendResult = await this.wechatSender.sendTextMessage(
-              contactId,
-              contactName,
-              plainContent,
-              isGroup
-            )
-            if (sendResult.success) {
-              const sentKey = `${contactId}:${plainContent}`
-              this.recentSentMessages.set(sentKey, Date.now())
-            } else {
-              console.warn('[AIReplyService] Failed to send message:', sendResult.error)
-              this.emit('replyError', { contactId: contactId, error: `消息发送失败: ${sendResult.error}` })
-            }
-          } catch (sendErr: any) {
-            console.warn('[AIReplyService] Exception sending message:', sendErr)
-            this.emit('replyError', { contactId: contactId, error: `消息发送异常: ${sendErr.message}` })
-          }
-        }
 
       } catch (error) {
         const latencyMs = Date.now() - startTime
@@ -499,6 +510,7 @@ export class AIReplyService extends EventEmitter {
           modelName: '',
           latencyMs,
           success: false,
+          sent: false,
           errorMessage: error instanceof Error ? error.message : String(error)
         }
 
