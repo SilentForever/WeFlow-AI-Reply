@@ -4680,9 +4680,28 @@ app.whenReady().then(async () => {
     // 等待 Splash 页面加载完成后再推送进度
     if (splashWindow) {
       await new Promise<void>((resolve) => {
+        let timedOut = false
+        const timeoutId = setTimeout(() => {
+          timedOut = true
+          console.warn('[Splash] Splash page load timeout (10s), skipping wait')
+          resolve()
+        }, 10000)
         if (splashWindow!.webContents.isLoading()) {
-          splashWindow!.webContents.once('did-finish-load', () => resolve())
+          splashWindow!.webContents.once('did-finish-load', () => {
+            if (!timedOut) {
+              clearTimeout(timeoutId)
+              resolve()
+            }
+          })
+          splashWindow!.webContents.once('did-fail-load', () => {
+            if (!timedOut) {
+              clearTimeout(timeoutId)
+              console.warn('[Splash] Splash page load failed, skipping wait')
+              resolve()
+            }
+          })
         } else {
+          clearTimeout(timeoutId)
           resolve()
         }
       })
