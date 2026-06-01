@@ -2,7 +2,7 @@ import { readFile, readdir, mkdir, cp, rm, writeFile, rmdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { exec } from 'child_process'
-import type { Skill, SelfMemory, Persona, PersonaIdentity, SpeechStyle, EmotionalPatterns, ReplyStrategy } from '../../../../src/types/ai-reply'
+import type { Skill, SelfMemory, Persona, PersonaIdentity, SpeechStyle, EmotionalPatterns, ReplyStrategy, PersonaV2 } from '../../../../src/types/ai-reply'
 import { DEFAULT_REPLY_STRATEGY } from '../../../../src/types/ai-reply'
 
 export class SkillEngine {
@@ -60,6 +60,136 @@ export class SkillEngine {
   }
 
   generateSystemPrompt(skill: Skill, extraContext?: {
+    recentMessages?: Array<{ role: string; content: string }>
+    relevantMemories?: string[]
+    relationship?: { relationType: string; notes?: string } | undefined
+    contextSummary?: string | undefined
+  }): string {
+    if (skill.personaV2) {
+      return this.generateSystemPromptV2(skill, extraContext)
+    }
+    return this.generateSystemPromptV1(skill, extraContext)
+  }
+
+  private generateSystemPromptV2(skill: Skill, extraContext?: {
+    recentMessages?: Array<{ role: string; content: string }>
+    relevantMemories?: string[]
+    relationship?: { relationType: string; notes?: string } | undefined
+    contextSummary?: string | undefined
+  }): string {
+    const p = skill.personaV2!
+    const parts: string[] = []
+
+    parts.push(`# 角色设定`)
+
+    if (p.layer0_hardRules.neverSay.length > 0 || p.layer0_hardRules.neverDo.length > 0 || p.layer0_hardRules.privacyBoundaries.length > 0) {
+      parts.push('')
+      parts.push(`## 绝对规则（不可违反）`)
+      p.layer0_hardRules.neverSay.forEach(s => parts.push(`- 绝对不要说: ${s}`))
+      p.layer0_hardRules.neverDo.forEach(s => parts.push(`- 绝对不要做: ${s}`))
+      p.layer0_hardRules.privacyBoundaries.forEach(s => parts.push(`- 隐私边界: ${s}`))
+    }
+
+    parts.push('')
+    parts.push(`## 身份`)
+    parts.push(`你是「${p.layer1_identity.role}」。${p.layer1_identity.selfImage}`)
+    if (p.layer1_identity.context) parts.push(`所处环境: ${p.layer1_identity.context}`)
+    if (p.layer1_identity.mbti) parts.push(`MBTI: ${p.layer1_identity.mbti}`)
+    if (p.layer1_identity.culturalAffiliation.length > 0) {
+      parts.push(`文化归属: ${p.layer1_identity.culturalAffiliation.join('、')}`)
+    }
+
+    parts.push('')
+    parts.push(`## 表达风格`)
+    if (p.layer2_expressionStyle.tone) parts.push(`- 语气: ${p.layer2_expressionStyle.tone}`)
+    if (p.layer2_expressionStyle.catchphrases.length > 0) {
+      parts.push(`- 口头禅: ${p.layer2_expressionStyle.catchphrases.join('、')}`)
+    }
+    if (p.layer2_expressionStyle.humorStyle) parts.push(`- 幽默风格: ${p.layer2_expressionStyle.humorStyle}`)
+    if (p.layer2_expressionStyle.sentenceLengthAvg > 0) {
+      parts.push(`- 句长偏好: ${p.layer2_expressionStyle.sentenceLengthAvg > 15 ? '长句' : '短句'}为主（平均${p.layer2_expressionStyle.sentenceLengthAvg}字）`)
+    }
+    if (p.layer2_expressionStyle.responseLatencyPattern) {
+      parts.push(`- 回复节奏: ${p.layer2_expressionStyle.responseLatencyPattern}`)
+    }
+    if (p.layer2_expressionStyle.vocabulary.length > 0) {
+      parts.push(`- 常用词汇: ${p.layer2_expressionStyle.vocabulary.join('、')}`)
+    }
+    if (p.layer2_expressionStyle.sentencePatterns.length > 0) {
+      parts.push(`- 句式特点: ${p.layer2_expressionStyle.sentencePatterns.join('、')}`)
+    }
+    if (p.layer2_expressionStyle.templateDialogues.length > 0) {
+      parts.push(`- 典型对话:`)
+      p.layer2_expressionStyle.templateDialogues.forEach(t => {
+        if (t && typeof t === 'object') {
+          parts.push(`  - 问:"${t.trigger || ''}" → 答:"${t.response || ''}"`)
+        }
+      })
+    }
+
+    parts.push('')
+    parts.push(`## 决策判断`)
+    if (p.layer3_decisionJudgment.priorityOrdering.length > 0) {
+      parts.push(`- 优先级: ${p.layer3_decisionJudgment.priorityOrdering.join(' > ')}`)
+    }
+    if (p.layer3_decisionJudgment.pushbackConditions.length > 0) {
+      parts.push(`- 推回条件: ${p.layer3_decisionJudgment.pushbackConditions.join('；')}`)
+    }
+    if (p.layer3_decisionJudgment.declineStrategies.length > 0) {
+      parts.push(`- 拒绝方式: ${p.layer3_decisionJudgment.declineStrategies.join('；')}`)
+    }
+    if (p.layer3_decisionJudgment.riskTolerance) {
+      parts.push(`- 风险态度: ${p.layer3_decisionJudgment.riskTolerance}`)
+    }
+
+    parts.push('')
+    parts.push(`## 人际行为`)
+    if (p.layer4_interpersonalBehavior.toSuperiors) parts.push(`- 对上级/长辈: ${p.layer4_interpersonalBehavior.toSuperiors}`)
+    if (p.layer4_interpersonalBehavior.toPeers) parts.push(`- 对平级/朋友: ${p.layer4_interpersonalBehavior.toPeers}`)
+    if (p.layer4_interpersonalBehavior.toSubordinates) parts.push(`- 对下级/晚辈: ${p.layer4_interpersonalBehavior.toSubordinates}`)
+    if (p.layer4_interpersonalBehavior.underPressure) parts.push(`- 压力下: ${p.layer4_interpersonalBehavior.underPressure}`)
+    if (p.layer4_interpersonalBehavior.inConflict) parts.push(`- 冲突中: ${p.layer4_interpersonalBehavior.inConflict}`)
+
+    if (skill.selfMemory.values.length > 0) {
+      parts.push('')
+      parts.push(`## 核心价值观`)
+      skill.selfMemory.values.forEach(v => parts.push(`- ${v}`))
+    }
+
+    if (extraContext?.relationship) {
+      parts.push('')
+      parts.push(`## 与对方的关系`)
+      parts.push(`关系类型: ${extraContext.relationship.relationType}`)
+      if (extraContext.relationship.notes) {
+        parts.push(`备注: ${extraContext.relationship.notes}`)
+      }
+    }
+
+    if (extraContext?.relevantMemories && extraContext.relevantMemories.length > 0) {
+      parts.push('')
+      parts.push(`## 相关记忆`)
+      extraContext.relevantMemories.forEach(m => parts.push(`- ${m}`))
+    }
+
+    if (extraContext?.contextSummary) {
+      parts.push('')
+      parts.push(`## 对话历史摘要`)
+      parts.push(extraContext.contextSummary)
+    }
+
+    if (skill.systemPromptTemplate) {
+      parts.push('')
+      parts.push(skill.systemPromptTemplate)
+    }
+
+    parts.push('')
+    parts.push('---')
+    parts.push('注意：回复必须符合上述角色设定，用第一人称"我"来回应。保留矛盾——真实人格本就包含矛盾。遇到超出蒸馏范围的话题，保持沉默而非编造。')
+
+    return parts.join('\n')
+  }
+
+  private generateSystemPromptV1(skill: Skill, extraContext?: {
     recentMessages?: Array<{ role: string; content: string }>
     relevantMemories?: string[]
     relationship?: { relationType: string; notes?: string } | undefined
@@ -187,6 +317,17 @@ export class SkillEngine {
   }
 
   private async loadSkillFromDirectory(dirPath: string): Promise<Skill | null> {
+    const skillJsonPath = join(dirPath, 'skill.json')
+    if (existsSync(skillJsonPath)) {
+      try {
+        const raw = await readFile(skillJsonPath, 'utf-8')
+        const skill = JSON.parse(raw) as Skill
+        if (skill.id) return skill
+      } catch (e) {
+        console.warn(`[SkillEngine] Failed to parse skill.json from ${dirPath}:`, e)
+      }
+    }
+
     const skillMdPath = join(dirPath, 'SKILL.md')
     const selfMdPath = join(dirPath, 'self.md')
     const personaMdPath = join(dirPath, 'persona.md')
@@ -400,9 +541,13 @@ export class SkillEngine {
     try {
       const dir = join(this.skillsDir, skill.id)
       await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, 'skill.json'), JSON.stringify(skill, null, 2), 'utf-8')
       await writeFile(join(dir, 'SKILL.md'), this.renderSkillMd(skill), 'utf-8')
       await writeFile(join(dir, 'self.md'), this.renderSelfMd(skill), 'utf-8')
-      await writeFile(join(dir, 'persona.md'), this.renderPersonaMd(skill), 'utf-8')
+      const personaMd = skill.personaV2
+        ? this.renderPersonaV2Md(skill)
+        : this.renderPersonaMd(skill)
+      await writeFile(join(dir, 'persona.md'), personaMd, 'utf-8')
     } catch {}
   }
 
@@ -423,11 +568,21 @@ export class SkillEngine {
     lines.push(`version: ${skill.version}`)
     if (skill.author) lines.push(`author: ${skill.author}`)
     lines.push(`description: ${skill.description}`)
+    if (skill.qualityScore) lines.push(`quality: ${skill.qualityScore.overall}`)
     lines.push('---')
     lines.push('')
     lines.push(`# ${skill.name}`)
     lines.push('')
     lines.push(skill.description)
+    if (skill.qualityScore) {
+      lines.push('')
+      lines.push('## 质量评分')
+      lines.push(`- 综合: ${skill.qualityScore.overall}`)
+      lines.push(`- 一致性: ${skill.qualityScore.consistency}`)
+      lines.push(`- 准确性: ${skill.qualityScore.accuracy}`)
+      lines.push(`- 完整性: ${skill.qualityScore.completeness}`)
+      lines.push(`- 验证通过特征: ${skill.qualityScore.verifiedFeatureCount}/${skill.qualityScore.totalCandidateCount}`)
+    }
     return lines.join('\n')
   }
 
@@ -479,6 +634,97 @@ export class SkillEngine {
     for (const r of skill.persona.behavioralRules) {
       lines.push(`- ${r}`)
     }
+    return lines.join('\n')
+  }
+
+  private renderPersonaV2Md(skill: Skill): string {
+    const p = skill.personaV2!
+    const lines: string[] = []
+    lines.push('# 角色设定（五层人格架构）')
+    lines.push('')
+
+    lines.push('## L0 硬规则')
+    if (p.layer0_hardRules.neverSay.length > 0) {
+      lines.push('### 绝对不说')
+      p.layer0_hardRules.neverSay.forEach(s => lines.push(`- ${s}`))
+    }
+    if (p.layer0_hardRules.neverDo.length > 0) {
+      lines.push('### 绝对不做')
+      p.layer0_hardRules.neverDo.forEach(s => lines.push(`- ${s}`))
+    }
+    if (p.layer0_hardRules.privacyBoundaries.length > 0) {
+      lines.push('### 隐私边界')
+      p.layer0_hardRules.privacyBoundaries.forEach(s => lines.push(`- ${s}`))
+    }
+    lines.push('')
+
+    lines.push('## L1 身份')
+    lines.push(`- 角色: ${p.layer1_identity.role}`)
+    lines.push(`- 环境: ${p.layer1_identity.context}`)
+    lines.push(`- 自我认知: ${p.layer1_identity.selfImage}`)
+    if (p.layer1_identity.mbti) lines.push(`- MBTI: ${p.layer1_identity.mbti}`)
+    if (p.layer1_identity.culturalAffiliation.length > 0) {
+      lines.push('- 文化归属:')
+      p.layer1_identity.culturalAffiliation.forEach(s => lines.push(`  - ${s}`))
+    }
+    lines.push('')
+
+    lines.push('## L2 表达风格')
+    lines.push(`- 语气: ${p.layer2_expressionStyle.tone}`)
+    lines.push(`- 幽默: ${p.layer2_expressionStyle.humorStyle}`)
+    lines.push(`- 平均句长: ${p.layer2_expressionStyle.sentenceLengthAvg}字`)
+    lines.push(`- 回复延迟模式: ${p.layer2_expressionStyle.responseLatencyPattern}`)
+    if (p.layer2_expressionStyle.catchphrases.length > 0) {
+      lines.push('- 口头禅:')
+      p.layer2_expressionStyle.catchphrases.forEach(s => lines.push(`  - ${s}`))
+    }
+    if (p.layer2_expressionStyle.vocabulary.length > 0) {
+      lines.push('- 常用词汇:')
+      p.layer2_expressionStyle.vocabulary.forEach(s => lines.push(`  - ${s}`))
+    }
+    if (p.layer2_expressionStyle.sentencePatterns.length > 0) {
+      lines.push('- 句式特点:')
+      p.layer2_expressionStyle.sentencePatterns.forEach(s => lines.push(`  - ${s}`))
+    }
+    if (p.layer2_expressionStyle.emojiUsage.length > 0) {
+      lines.push('- 表情使用:')
+      p.layer2_expressionStyle.emojiUsage.forEach(ep => {
+        const ctxs = Array.isArray(ep.contexts) ? ep.contexts.join(', ') : ''
+        lines.push(`  - ${ep.emoji} (${ep.frequency})${ctxs ? ` [${ctxs}]` : ''}`)
+      })
+    }
+    if (p.layer2_expressionStyle.templateDialogues.length > 0) {
+      lines.push('- 模板对话:')
+      p.layer2_expressionStyle.templateDialogues.forEach(td => {
+        if (td && typeof td === 'object') {
+          lines.push(`  - ${td.trigger || ''} → ${td.response || ''}`)
+        }
+      })
+    }
+    lines.push('')
+
+    lines.push('## L3 决策判断')
+    if (p.layer3_decisionJudgment.priorityOrdering.length > 0) {
+      lines.push(`- 优先级: ${p.layer3_decisionJudgment.priorityOrdering.join(' > ')}`)
+    }
+    lines.push(`- 风险态度: ${p.layer3_decisionJudgment.riskTolerance}`)
+    if (p.layer3_decisionJudgment.declineStrategies.length > 0) {
+      lines.push('- 拒绝策略:')
+      p.layer3_decisionJudgment.declineStrategies.forEach(s => lines.push(`  - ${s}`))
+    }
+    if (p.layer3_decisionJudgment.pushbackConditions.length > 0) {
+      lines.push('- 推回条件:')
+      p.layer3_decisionJudgment.pushbackConditions.forEach(s => lines.push(`  - ${s}`))
+    }
+    lines.push('')
+
+    lines.push('## L4 人际行为')
+    lines.push(`- 对上级: ${p.layer4_interpersonalBehavior.toSuperiors}`)
+    lines.push(`- 对平级: ${p.layer4_interpersonalBehavior.toPeers}`)
+    lines.push(`- 对下级: ${p.layer4_interpersonalBehavior.toSubordinates}`)
+    lines.push(`- 压力下: ${p.layer4_interpersonalBehavior.underPressure}`)
+    lines.push(`- 冲突中: ${p.layer4_interpersonalBehavior.inConflict}`)
+
     return lines.join('\n')
   }
 }

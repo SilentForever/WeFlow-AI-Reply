@@ -11,7 +11,7 @@ import { SkillEngine } from './skill/SkillEngine'
 import { ContextManager } from './core/ContextManager'
 import { TriggerEngine } from './core/TriggerEngine'
 import { MessageDeduper } from './core/MessageDeduper'
-import { DistillService } from './distill/DistillService'
+import { DistillService, type ChatRecordFetcher } from './distill/DistillService'
 import { WeChatSender } from './core/WeChatSender'
 
 export interface AIReplyServiceEvents {
@@ -69,6 +69,10 @@ export class AIReplyService extends EventEmitter {
     this.distillService.on('progress', (progress: any) => {
       this.emit('distillProgress', progress)
     })
+  }
+
+  setDistillChatRecordFetcher(fetcher: ChatRecordFetcher): void {
+    this.distillService.setChatRecordFetcher(fetcher)
   }
 
   private loadLogsFromDisk(): void {
@@ -778,11 +782,9 @@ export class AIReplyService extends EventEmitter {
       throw new Error('未配置模型，请先添加模型')
     }
 
-    if (!this.sseUrl) {
-      throw new Error('WeFlow API 未配置，请先在设置中启用 HTTP API')
+    if (this.sseUrl) {
+      this.distillService.setWeFlowConfig(this.sseUrl.replace('/api/v1/push/messages', ''), this.accessToken)
     }
-
-    this.distillService.setWeFlowConfig(this.sseUrl.replace('/api/v1/push/messages', ''), this.accessToken)
 
     return this.distillService.distillFromChatRecords(
       params.contactId,
@@ -802,11 +804,9 @@ export class AIReplyService extends EventEmitter {
       throw new Error('未配置模型，请先添加模型')
     }
 
-    if (!this.sseUrl) {
-      throw new Error('WeFlow API 未配置，请先在设置中启用 HTTP API')
+    if (this.sseUrl) {
+      this.distillService.setWeFlowConfig(this.sseUrl.replace('/api/v1/push/messages', ''), this.accessToken)
     }
-
-    this.distillService.setWeFlowConfig(this.sseUrl.replace('/api/v1/push/messages', ''), this.accessToken)
 
     const taskId = this.distillService.createTask(params.contactId, params.config)
 

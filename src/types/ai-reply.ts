@@ -110,6 +110,99 @@ export interface Persona {
   behavioralRules: string[]
 }
 
+export interface Layer0HardRules {
+  neverSay: string[]
+  neverDo: string[]
+  privacyBoundaries: string[]
+}
+
+export interface Layer1Identity {
+  role: string
+  context: string
+  selfImage: string
+  mbti?: string
+  culturalAffiliation: string[]
+}
+
+export interface EmojiPattern {
+  emoji: string
+  frequency: 'high' | 'medium' | 'low'
+  contexts: string[]
+}
+
+export interface TemplateDialogue {
+  trigger: string
+  response: string
+}
+
+export interface Layer2ExpressionStyle {
+  catchphrases: string[]
+  sentenceLengthAvg: number
+  responseLatencyPattern: string
+  emojiUsage: EmojiPattern[]
+  humorStyle: string
+  templateDialogues: TemplateDialogue[]
+  tone: string
+  vocabulary: string[]
+  sentencePatterns: string[]
+}
+
+export interface Layer3DecisionJudgment {
+  priorityOrdering: string[]
+  pushbackConditions: string[]
+  declineStrategies: string[]
+  riskTolerance: string
+}
+
+export interface Layer4InterpersonalBehavior {
+  toSuperiors: string
+  toPeers: string
+  toSubordinates: string
+  underPressure: string
+  inConflict: string
+}
+
+export interface PersonaV2 {
+  layer0_hardRules: Layer0HardRules
+  layer1_identity: Layer1Identity
+  layer2_expressionStyle: Layer2ExpressionStyle
+  layer3_decisionJudgment: Layer3DecisionJudgment
+  layer4_interpersonalBehavior: Layer4InterpersonalBehavior
+}
+
+export interface VerificationResult {
+  feature: string
+  crossDomain: { passed: boolean; evidence: string }
+  generative: { passed: boolean; prediction: string }
+  exclusive: { passed: boolean; distinction: string }
+  finalVerdict: 'confirmed' | 'observation' | 'common_wisdom' | 'rejected'
+}
+
+export interface SkillQualityScore {
+  overall: number
+  consistency: number
+  accuracy: number
+  completeness: number
+  verifiedFeatureCount: number
+  totalCandidateCount: number
+}
+
+export interface SkillEvolution {
+  version: number
+  changelog: EvolutionEntry[]
+  lastEvolvedAt: number
+  dataSourceHash: string
+}
+
+export interface EvolutionEntry {
+  timestamp: number
+  type: 'data_append' | 'conversation_correction' | 'manual_edit'
+  layer: string
+  change: string
+  before?: string
+  after?: string
+}
+
 export interface ReplyStrategy {
   responseDelay: { min: number; max: number }
   typingSpeed: number
@@ -126,8 +219,11 @@ export interface Skill {
   avatar?: string
   selfMemory: SelfMemory
   persona: Persona
+  personaV2?: PersonaV2
   systemPromptTemplate: string
   replyStrategy: ReplyStrategy
+  qualityScore?: SkillQualityScore
+  evolution?: SkillEvolution
   isBuiltin?: boolean
   createdAt?: number
   updatedAt?: number
@@ -258,6 +354,7 @@ export interface DistillProgress {
   totalRounds: number
   roundResults: { round: number; name: string; status: 'pending' | 'running' | 'completed' | 'error'; durationMs?: number }[]
   tokenUsage: { inputTokens: number; outputTokens: number; totalTokens: number }
+  verificationResults?: VerificationResult[]
   error?: string
 }
 
@@ -267,6 +364,8 @@ export interface DistillConfig {
   skillName: string
   skillDescription: string
   messageLimit?: number
+  enableTripleVerification?: boolean
+  schemaVersion?: 'v1' | 'v2'
 }
 
 export interface ChatRecord {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Save, Eye } from 'lucide-react'
+import { X, Save, Eye, Shield } from 'lucide-react'
 import TagInput from './TagInput'
 import type { Skill, PersonaIdentity, SpeechStyle } from '../../types/ai-reply'
 import './SkillDetailEditor.scss'
@@ -10,9 +10,9 @@ interface SkillDetailEditorProps {
   onCancel: () => void
 }
 
-type EditorTab = 'basic' | 'identity' | 'speech' | 'rules' | 'values' | 'memory' | 'strategy' | 'prompt'
+type EditorTab = 'basic' | 'identity' | 'speech' | 'rules' | 'values' | 'memory' | 'strategy' | 'prompt' | 'personaV2'
 
-const EDITOR_TABS: { id: EditorTab; label: string }[] = [
+const BASE_TABS: { id: EditorTab; label: string }[] = [
   { id: 'basic', label: '基本信息' },
   { id: 'identity', label: '身份信息' },
   { id: 'speech', label: '说话风格' },
@@ -27,6 +27,12 @@ export default function SkillDetailEditor({ skill, onSave, onCancel }: SkillDeta
   const [editData, setEditData] = useState<Skill>(JSON.parse(JSON.stringify(skill)))
   const [activeTab, setActiveTab] = useState<EditorTab>('basic')
   const [showPreview, setShowPreview] = useState(false)
+
+  const hasPersonaV2 = Boolean(editData.personaV2)
+
+  const editorTabs = hasPersonaV2
+    ? [...BASE_TABS.slice(0, 1), { id: 'personaV2' as EditorTab, label: '五层人格' }, ...BASE_TABS.slice(1)]
+    : BASE_TABS
 
   useEffect(() => {
     setEditData(JSON.parse(JSON.stringify(skill)))
@@ -163,7 +169,10 @@ export default function SkillDetailEditor({ skill, onSave, onCancel }: SkillDeta
   return (
     <div className="skill-detail-editor">
       <div className="editor-header">
-        <h3>编辑角色 - {editData.name}</h3>
+        <h3>
+          编辑角色 - {editData.name}
+          {hasPersonaV2 && <span className="v2-badge"><Shield size={12} /> V2</span>}
+        </h3>
         <div className="editor-actions">
           <button className="btn btn-secondary" onClick={() => setShowPreview(!showPreview)}>
             <Eye size={14} /> 预览
@@ -178,10 +187,10 @@ export default function SkillDetailEditor({ skill, onSave, onCancel }: SkillDeta
       </div>
 
       <div className="editor-tabs">
-        {EDITOR_TABS.map(tab => (
+        {editorTabs.map(tab => (
           <button
             key={tab.id}
-            className={`editor-tab ${activeTab === tab.id ? 'active' : ''}`}
+            className={`editor-tab ${activeTab === tab.id ? 'active' : ''} ${tab.id === 'personaV2' ? 'v2-tab' : ''}`}
             onClick={() => setActiveTab(tab.id)}
           >
             {tab.label}
@@ -208,6 +217,138 @@ export default function SkillDetailEditor({ skill, onSave, onCancel }: SkillDeta
               <div className="form-group">
                 <label>作者</label>
                 <input value={editData.author || ''} onChange={e => updateField('author', e.target.value)} />
+              </div>
+            </div>
+            {editData.qualityScore && (
+              <div className="quality-summary">
+                <label>蒸馏质量评分</label>
+                <div className="quality-bars">
+                  <div className="quality-bar-item">
+                    <span className="quality-label">综合</span>
+                    <div className="quality-bar"><div className="quality-fill" style={{ width: `${editData.qualityScore.overall * 100}%` }} /></div>
+                    <span className="quality-value">{editData.qualityScore.overall}</span>
+                  </div>
+                  <div className="quality-bar-item">
+                    <span className="quality-label">一致性</span>
+                    <div className="quality-bar"><div className="quality-fill" style={{ width: `${editData.qualityScore.consistency * 100}%` }} /></div>
+                    <span className="quality-value">{editData.qualityScore.consistency}</span>
+                  </div>
+                  <div className="quality-bar-item">
+                    <span className="quality-label">准确性</span>
+                    <div className="quality-bar"><div className="quality-fill" style={{ width: `${editData.qualityScore.accuracy * 100}%` }} /></div>
+                    <span className="quality-value">{editData.qualityScore.accuracy}</span>
+                  </div>
+                  <div className="quality-bar-item">
+                    <span className="quality-label">完整性</span>
+                    <div className="quality-bar"><div className="quality-fill" style={{ width: `${editData.qualityScore.completeness * 100}%` }} /></div>
+                    <span className="quality-value">{editData.qualityScore.completeness}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'personaV2' && editData.personaV2 && (
+          <div className="editor-section persona-v2-section">
+            <div className="v2-notice">
+              <Shield size={14} />
+              <span>五层人格数据由蒸馏自动生成，此处为只读展示。编辑下方 V1 字段不会同步到五层人格。</span>
+            </div>
+
+            <div className="v2-layer">
+              <h4 className="v2-layer-title">L0 硬规则</h4>
+              <div className="v2-layer-content">
+                {editData.personaV2.layer0_hardRules.neverSay.length > 0 && (
+                  <div className="v2-field">
+                    <label>绝对不说</label>
+                    <div className="v2-tags">{editData.personaV2.layer0_hardRules.neverSay.map((s, i) => <span key={i} className="v2-tag tag-danger">{s}</span>)}</div>
+                  </div>
+                )}
+                {editData.personaV2.layer0_hardRules.neverDo.length > 0 && (
+                  <div className="v2-field">
+                    <label>绝对不做</label>
+                    <div className="v2-tags">{editData.personaV2.layer0_hardRules.neverDo.map((s, i) => <span key={i} className="v2-tag tag-danger">{s}</span>)}</div>
+                  </div>
+                )}
+                {editData.personaV2.layer0_hardRules.privacyBoundaries.length > 0 && (
+                  <div className="v2-field">
+                    <label>隐私边界</label>
+                    <div className="v2-tags">{editData.personaV2.layer0_hardRules.privacyBoundaries.map((s, i) => <span key={i} className="v2-tag tag-warning">{s}</span>)}</div>
+                  </div>
+                )}
+                {editData.personaV2.layer0_hardRules.neverSay.length === 0 && editData.personaV2.layer0_hardRules.neverDo.length === 0 && editData.personaV2.layer0_hardRules.privacyBoundaries.length === 0 && (
+                  <p className="v2-empty">无数据</p>
+                )}
+              </div>
+            </div>
+
+            <div className="v2-layer">
+              <h4 className="v2-layer-title">L1 身份</h4>
+              <div className="v2-layer-content">
+                <div className="v2-field"><label>角色</label><span>{editData.personaV2.layer1_identity.role || '-'}</span></div>
+                <div className="v2-field"><label>自我认知</label><span>{editData.personaV2.layer1_identity.selfImage || '-'}</span></div>
+                <div className="v2-field"><label>所处环境</label><span>{editData.personaV2.layer1_identity.context || '-'}</span></div>
+                {editData.personaV2.layer1_identity.mbti && <div className="v2-field"><label>MBTI</label><span>{editData.personaV2.layer1_identity.mbti}</span></div>}
+                {editData.personaV2.layer1_identity.culturalAffiliation.length > 0 && (
+                  <div className="v2-field"><label>文化归属</label><div className="v2-tags">{editData.personaV2.layer1_identity.culturalAffiliation.map((s, i) => <span key={i} className="v2-tag">{s}</span>)}</div></div>
+                )}
+              </div>
+            </div>
+
+            <div className="v2-layer">
+              <h4 className="v2-layer-title">L2 表达风格</h4>
+              <div className="v2-layer-content">
+                <div className="v2-field"><label>语气</label><span>{editData.personaV2.layer2_expressionStyle.tone || '-'}</span></div>
+                <div className="v2-field"><label>幽默风格</label><span>{editData.personaV2.layer2_expressionStyle.humorStyle || '-'}</span></div>
+                <div className="v2-field"><label>平均句长</label><span>{editData.personaV2.layer2_expressionStyle.sentenceLengthAvg}字</span></div>
+                <div className="v2-field"><label>回复延迟模式</label><span>{editData.personaV2.layer2_expressionStyle.responseLatencyPattern || '-'}</span></div>
+                {editData.personaV2.layer2_expressionStyle.catchphrases.length > 0 && (
+                  <div className="v2-field"><label>口头禅</label><div className="v2-tags">{editData.personaV2.layer2_expressionStyle.catchphrases.map((s, i) => <span key={i} className="v2-tag tag-accent">{s}</span>)}</div></div>
+                )}
+                {editData.personaV2.layer2_expressionStyle.vocabulary.length > 0 && (
+                  <div className="v2-field"><label>常用词汇</label><div className="v2-tags">{editData.personaV2.layer2_expressionStyle.vocabulary.map((s, i) => <span key={i} className="v2-tag">{s}</span>)}</div></div>
+                )}
+                {editData.personaV2.layer2_expressionStyle.sentencePatterns.length > 0 && (
+                  <div className="v2-field"><label>句式特点</label><div className="v2-tags">{editData.personaV2.layer2_expressionStyle.sentencePatterns.map((s, i) => <span key={i} className="v2-tag">{s}</span>)}</div></div>
+                )}
+                {editData.personaV2.layer2_expressionStyle.emojiUsage.length > 0 && (
+                  <div className="v2-field"><label>表情使用</label><div className="v2-emoji-list">{editData.personaV2.layer2_expressionStyle.emojiUsage.map((ep, i) => (
+                    <span key={i} className="v2-emoji-item">{ep.emoji} <span className="v2-emoji-freq">{ep.frequency}</span>{Array.isArray(ep.contexts) && ep.contexts.length > 0 && <span className="v2-emoji-ctx">({ep.contexts.join(', ')})</span>}</span>
+                  ))}</div></div>
+                )}
+                {editData.personaV2.layer2_expressionStyle.templateDialogues.length > 0 && (
+                  <div className="v2-field v2-field-block"><label>模板对话</label><div className="v2-dialogue-list">{editData.personaV2.layer2_expressionStyle.templateDialogues.map((td, i) => (
+                    <div key={i} className="v2-dialogue-item"><span className="v2-dialogue-trigger">{td.trigger}</span><span className="v2-dialogue-arrow">→</span><span className="v2-dialogue-response">{td.response}</span></div>
+                  ))}</div></div>
+                )}
+              </div>
+            </div>
+
+            <div className="v2-layer">
+              <h4 className="v2-layer-title">L3 决策判断</h4>
+              <div className="v2-layer-content">
+                {editData.personaV2.layer3_decisionJudgment.priorityOrdering.length > 0 && (
+                  <div className="v2-field"><label>优先级</label><span>{editData.personaV2.layer3_decisionJudgment.priorityOrdering.join(' > ')}</span></div>
+                )}
+                <div className="v2-field"><label>风险态度</label><span>{editData.personaV2.layer3_decisionJudgment.riskTolerance || '-'}</span></div>
+                {editData.personaV2.layer3_decisionJudgment.declineStrategies.length > 0 && (
+                  <div className="v2-field"><label>拒绝策略</label><div className="v2-tags">{editData.personaV2.layer3_decisionJudgment.declineStrategies.map((s, i) => <span key={i} className="v2-tag tag-warning">{s}</span>)}</div></div>
+                )}
+                {editData.personaV2.layer3_decisionJudgment.pushbackConditions.length > 0 && (
+                  <div className="v2-field"><label>推回条件</label><div className="v2-tags">{editData.personaV2.layer3_decisionJudgment.pushbackConditions.map((s, i) => <span key={i} className="v2-tag">{s}</span>)}</div></div>
+                )}
+              </div>
+            </div>
+
+            <div className="v2-layer">
+              <h4 className="v2-layer-title">L4 人际行为</h4>
+              <div className="v2-layer-content">
+                <div className="v2-field"><label>对上级/长辈</label><span>{editData.personaV2.layer4_interpersonalBehavior.toSuperiors || '-'}</span></div>
+                <div className="v2-field"><label>对平级/朋友</label><span>{editData.personaV2.layer4_interpersonalBehavior.toPeers || '-'}</span></div>
+                <div className="v2-field"><label>对下级/晚辈</label><span>{editData.personaV2.layer4_interpersonalBehavior.toSubordinates || '-'}</span></div>
+                <div className="v2-field"><label>压力下</label><span>{editData.personaV2.layer4_interpersonalBehavior.underPressure || '-'}</span></div>
+                <div className="v2-field"><label>冲突中</label><span>{editData.personaV2.layer4_interpersonalBehavior.inConflict || '-'}</span></div>
               </div>
             </div>
           </div>

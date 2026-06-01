@@ -38,6 +38,8 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
   const [distillDepth, setDistillDepth] = useState(3)
   const [distillDimensions, setDistillDimensions] = useState(5)
   const [skillName, setSkillName] = useState('')
+  const [schemaVersion, setSchemaVersion] = useState<'v1' | 'v2'>('v2')
+  const [enableTripleVerification, setEnableTripleVerification] = useState(true)
   const [progress, setProgress] = useState<DistillProgress | null>(null)
   const [taskId, setTaskId] = useState('')
   const [error, setError] = useState('')
@@ -92,8 +94,28 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
 
   useEffect(() => {
     if (step !== 4 || !taskId) return
-    const interval = setInterval(pollProgress, 2000)
-    return () => clearInterval(interval)
+    pollProgress()
+    const unsubscribe = window.electronAPI?.aiReply?.onDistillProgress?.((progress: any) => {
+      if (progress.taskId === taskId) {
+        setProgress(progress as DistillProgress)
+        if (progress.status === 'completed') {
+          window.electronAPI?.aiReply?.getDistillResult(taskId).then((result: any) => {
+            if (result) {
+              setCompletedSkill(result as Skill)
+            } else {
+              setError('蒸馏完成但获取结果失败')
+            }
+          })
+        } else if (progress.status === 'error') {
+          setError(progress.error || '蒸馏过程中发生错误')
+        }
+      }
+    })
+    const interval = setInterval(pollProgress, 5000)
+    return () => {
+      clearInterval(interval)
+      if (unsubscribe) unsubscribe()
+    }
   }, [step, taskId, pollProgress])
 
   if (!open) return null
@@ -139,7 +161,9 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
         modelId: distillModelId,
         depth: distillDepth,
         dimensions: distillDimensions,
-        skillName
+        skillName,
+        schemaVersion,
+        enableTripleVerification: schemaVersion === 'v2' ? enableTripleVerification : false
       })
       if (id && !(id as any).error) {
         setTaskId(id as string)
@@ -306,6 +330,29 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
                 </div>
               </div>
               <div className="form-group">
+                <label>蒸馏架构</label>
+                <select value={schemaVersion} onChange={e => setSchemaVersion(e.target.value as 'v1' | 'v2')}>
+                  <option value="v2">V2 五层人格架构（推荐）</option>
+                  <option value="v1">V1 传统架构</option>
+                </select>
+                <small className="form-hint">
+                  {schemaVersion === 'v2'
+                    ? '五层架构：硬规则→身份→表达→决策→人际，更精准地还原人格特征'
+                    : '传统六轮串行蒸馏架构'}
+                </small>
+              </div>
+              {schemaVersion === 'v2' && (
+                <div className="form-group">
+                  <label className="toggle-label-row">
+                    <span>启用三重验证</span>
+                    <input type="checkbox" checked={enableTripleVerification} onChange={e => setEnableTripleVerification(e.target.checked)} />
+                  </label>
+                  <small className="form-hint">
+                    对提取的特征进行跨域复现、生成力、排他性三重验证，确保蒸馏质量（增加2轮AI调用）
+                  </small>
+                </div>
+              )}
+              <div className="form-group">
                 <label>角色名称</label>
                 <input value={skillName} onChange={e => setSkillName(e.target.value)} placeholder="为蒸馏出的角色命名" />
               </div>
@@ -329,13 +376,62 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
                   <div className="progress-steps">
                     轮次 {progress.currentRound}/{progress.totalRounds}
                     {progress.roundResults.filter(r => r.status === 'running').length > 0 && (
-                      <span> - {progress.roundResults.find(r => r.status === 'running')?.name === 'expressionDNA' ? '表达DNA提取' :
-                        progress.roundResults.find(r => r.status === 'running')?.name === 'mentalModels' ? '思维模式分析' :
-                        progress.roundResults.find(r => r.status === 'running')?.name === 'decisionHeuristics' ? '决策启发提取' :
-                        progress.roundResults.find(r => r.status === 'running')?.name === 'valuesAndAntiPatterns' ? '价值观与反模式' :
-                        progress.roundResults.find(r => r.status === 'running')?.name === 'honestyBoundaries' ? '坦诚边界分析' :
-                        progress.roundResults.find(r => r.status === 'running')?.name === 'validation' ? '验证与整合' : ''}</span>
+                      <span> - {(() => {
+                        const name = progress.roundResults.find(r => r.status === 'running')?.name || ''
+                        const nameMap: Record<string, string> = {
+                          expressionDNA: '表达DNA提取',
+                          mentalModels: '思维模式分析',
+                          decisionHeuristics: '决策启发提取',
+                          valuesAndAntiPatterns: '价值观与反模式',
+                          honestyBoundaries: '坦诚边界分析',
+                          layer0_hardRules: '硬规则提取',
+                          layer1_identity: '身份认知分析',
+                          layer2_expressionStyle: '表达风格分析',
+                          layer3_decisionJudgment: '决策判断分析',
+                          layer4_interpersonalBehavior: '人际行为分析',
+                          tripleVerification: '三重验证',
+                          skillSynthesis: '角色合成',
+                          validation: '验证与整合'
+                        }
+                        return nameMap[name] || name
+                      })()}</span>
                     )}
+                  </div>
+                  {progress.tokenUsage.totalTokens > 0 && (
+                    <div className="progress-tokens">
+                      Token 消耗: {progress.tokenUsage.totalTokens.toLocaleString()}
+                    </div>
+                  )}
+                  <div className="round-details">
+                    {progress.roundResults.map((r, i) => (
+                      <div key={i} className={`round-item ${r.status}`}>
+                        <span className="round-num">{i + 1}</span>
+                        <span className="round-name">{(() => {
+                          const nameMap: Record<string, string> = {
+                            expressionDNA: '表达DNA',
+                            mentalModels: '思维模式',
+                            decisionHeuristics: '决策启发',
+                            valuesAndAntiPatterns: '价值观',
+                            honestyBoundaries: '坦诚边界',
+                            layer0_hardRules: '硬规则',
+                            layer1_identity: '身份',
+                            layer2_expressionStyle: '表达风格',
+                            layer3_decisionJudgment: '决策判断',
+                            layer4_interpersonalBehavior: '人际行为',
+                            tripleVerification: '三重验证',
+                            skillSynthesis: '角色合成',
+                            validation: '验证'
+                          }
+                          return nameMap[r.name] || r.name
+                        })()}</span>
+                        <span className="round-status">
+                          {r.status === 'pending' ? '⏳' : r.status === 'running' ? '🔄' : r.status === 'completed' ? '✅' : '❌'}
+                        </span>
+                        {r.durationMs != null && r.status === 'completed' && (
+                          <span className="round-duration">{(r.durationMs / 1000).toFixed(1)}s</span>
+                        )}
+                      </div>
+                    ))}
                   </div>
                   {progress.roundResults.some(r => r.status === 'error') && (
                     <div className="progress-warning">
@@ -349,10 +445,30 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
                   <CheckCircle2 size={48} className="result-icon" />
                   <h4>{completedSkill.name}</h4>
                   <p>{completedSkill.description}</p>
+                  {completedSkill.qualityScore && (
+                    <div className="quality-score">
+                      <div className="quality-overall">
+                        质量评分: <strong>{Math.round(completedSkill.qualityScore.overall * 100)}</strong>/100
+                      </div>
+                      <div className="quality-details">
+                        <span>一致性 {Math.round(completedSkill.qualityScore.consistency * 100)}</span>
+                        <span>准确性 {Math.round(completedSkill.qualityScore.accuracy * 100)}</span>
+                        <span>完整性 {Math.round(completedSkill.qualityScore.completeness * 100)}</span>
+                        <span>验证 {completedSkill.qualityScore.verifiedFeatureCount}/{completedSkill.qualityScore.totalCandidateCount}</span>
+                      </div>
+                    </div>
+                  )}
                   <div className="result-tags">
-                    {completedSkill.persona.identity.tags.map((tag, i) => (
+                    {(completedSkill.persona?.identity?.tags || []).map((tag, i) => (
                       <span key={i} className="result-tag">{tag}</span>
                     ))}
+                    {completedSkill.personaV2 && (
+                      <>
+                        {completedSkill.personaV2.layer2_expressionStyle?.catchphrases?.slice(0, 5).map((tag, i) => (
+                          <span key={`cp-${i}`} className="result-tag accent">{tag}</span>
+                        ))}
+                      </>
+                    )}
                   </div>
                 </div>
               )}

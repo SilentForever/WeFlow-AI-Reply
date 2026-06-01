@@ -1890,6 +1890,25 @@ function registerIpcHandlers() {
   const aiReplySkillsDir = join(app.getPath('userData'), 'ai-reply', 'skills')
   const aiReplyService = new AIReplyService(aiReplySkillsDir)
 
+  aiReplyService.setDistillChatRecordFetcher(async (contactId: string, limit: number) => {
+    try {
+      const result = await chatService.getMessages(contactId, 0, limit, 0, 0, false)
+      if (!result.success || !result.messages) {
+        return []
+      }
+      return result.messages.map((msg: any) => ({
+        id: String(msg.localId || msg.serverId || ''),
+        content: String(msg.parsedContent || msg.content || msg.rawContent || ''),
+        isSend: Boolean(msg.isSend),
+        timestamp: Number(msg.createTime || 0),
+        type: Number(msg.localType ?? 1)
+      }))
+    } catch (e) {
+      console.warn('[Main] Distill chatRecordFetcher error:', e)
+      return []
+    }
+  })
+
   // 获取 SSE 连接所需的配置信息
   function getSSEConfig(): { sseUrl: string; accessToken: string } {
     const httpApiEnabled = configService?.get('httpApiEnabled' as any)
@@ -2329,18 +2348,17 @@ function registerIpcHandlers() {
       if (!contactId) {
         return { error: '请先选择好友' }
       }
+      const schemaVersion = params.schemaVersion || 'v2'
       const config: any = {
         depth: params.depth >= 5 ? 'deep' : 'standard',
-        dimensions: [
-          'expressionDNA',
-          'mentalModels',
-          'decisionHeuristics',
-          'valuesAndAntiPatterns',
-          'honestyBoundaries'
-        ].slice(0, params.dimensions || 5),
+        dimensions: schemaVersion === 'v1'
+          ? ['expressionDNA', 'mentalModels', 'decisionHeuristics', 'valuesAndAntiPatterns', 'honestyBoundaries'].slice(0, params.dimensions || 5)
+          : ['expressionDNA', 'mentalModels', 'decisionHeuristics', 'valuesAndAntiPatterns', 'honestyBoundaries', 'emotionalPatterns'],
         skillName: params.skillName || '蒸馏角色',
         skillDescription: `从聊天记录蒸馏生成的角色`,
-        messageLimit: params.messageLimit || 5000
+        messageLimit: params.messageLimit || 5000,
+        schemaVersion,
+        enableTripleVerification: params.enableTripleVerification !== false && schemaVersion === 'v2'
       }
       const taskId = aiReplyService.startDistillAsync({ contactId, config, modelId: params.modelId })
       return taskId
@@ -2373,9 +2391,12 @@ function registerIpcHandlers() {
       return []
     }
   })
-  ipcMain.handle('aiReply:estimateDistillCost', async (_, contactId: string, messageLimit: number, depth: number) => {
+  ipcMain.handle('aiReply:estimateDistillCost', async (_, contactId: string, messageLimit: number, depth: number, schemaVersion?: string, enableTripleVerification?: boolean) => {
     const avgTokensPerMsg = 50
-    const rounds = Math.min(depth || 6, 6)
+    const useV2 = schemaVersion !== 'v1'
+    const baseRounds = useV2 ? 5 : Math.min(depth || 6, 6)
+    const extraRounds = useV2 && enableTripleVerification !== false ? 3 : 1
+    const rounds = baseRounds + extraRounds
     const inputTokens = messageLimit * avgTokensPerMsg * rounds
     const outputTokens = rounds * 800
     return {
