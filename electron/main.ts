@@ -859,13 +859,28 @@ function createWindow(options: { autoShow?: boolean } = {}) {
   })
   setupCustomTitleBarWindow(win)
 
-  // 窗口准备好后显示
-  // Splash 模式下不在这里 show，由启动流程统一控制
   win.once('ready-to-show', () => {
     mainWindowReady = true
     if (autoShow && !splashWindow) {
       win.show()
     }
+  })
+
+  win.webContents.on('did-finish-load', () => {
+    if (!mainWindowReady) {
+      mainWindowReady = true
+      if (autoShow && !splashWindow) {
+        win.show()
+      }
+    }
+  })
+
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[Main] Render process gone:', details.reason, details.exitCode)
+  })
+
+  win.webContents.on('crashed', () => {
+    console.error('[Main] Web contents crashed')
   })
 
   // 开发环境加载 vite 服务器
@@ -886,6 +901,16 @@ function createWindow(options: { autoShow?: boolean } = {}) {
   } else {
     win.loadFile(join(__dirname, '../dist/index.html'))
   }
+
+  win.webContents.on('console-message', (_event, level, message, _line, sourceId) => {
+    if (level >= 2) {
+      console.error(`[Renderer] ${sourceId}:${_line} - ${message}`)
+    }
+  })
+
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDesc) => {
+    console.error('[Main] Failed to load:', errorCode, errorDesc)
+  })
 
   // 忽略微信 CDN 域名的证书错误（部分节点证书配置不正确）
   win.webContents.on('certificate-error', (event, url, _error, _cert, callback) => {
@@ -4852,12 +4877,23 @@ app.whenReady().then(async () => {
   await new Promise<void>((resolve) => {
     if (mainWindowReady) {
       resolve()
-    } else {
-      mainWindow!.once('ready-to-show', () => {
+      return
+    }
+    mainWindow!.once('ready-to-show', () => {
+      mainWindowReady = true
+      resolve()
+    })
+    mainWindow!.webContents.once('did-finish-load', () => {
+      mainWindowReady = true
+      resolve()
+    })
+    setTimeout(() => {
+      if (!mainWindowReady) {
+        console.warn('[Main] Window load timeout (30s), forcing continue')
         mainWindowReady = true
         resolve()
-      })
-    }
+      }
+    }, 30000)
   })
 
   // 加载完成，收尾
