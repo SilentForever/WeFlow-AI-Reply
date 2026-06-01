@@ -271,20 +271,29 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   },
 
   setupListeners: () => {
+    if ((useAIReplyStore as any)._listenersSetup) {
+      return (useAIReplyStore as any)._listenersCleanup || (() => {})
+    }
+
+    const listeners: (() => void)[] = []
+
     const unsub1 = api()?.onStatusChanged((status: any) => {
       set({ status: status as ServiceStatus })
-    }) || (() => {})
+    })
+    if (unsub1) listeners.push(unsub1)
 
     const unsub2 = api()?.onReplySent((log: any) => {
       set((state) => ({
         replyLogs: [...state.replyLogs.slice(-99), log as ReplyLog],
         replyLogsTotal: state.replyLogsTotal + 1
       }))
-    }) || (() => {})
+    })
+    if (unsub2) listeners.push(unsub2)
 
     const unsub3 = api()?.onReplyError(() => {
       get().fetchDailyStats()
-    }) || (() => {})
+    })
+    if (unsub3) listeners.push(unsub3)
 
     const unsub4 = api()?.onSSEStatusChanged?.((status: any) => {
       if (typeof status === 'string') {
@@ -295,7 +304,8 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
           sseError: status.error || ''
         })
       }
-    }) || (() => {})
+    })
+    if (unsub4) listeners.push(unsub4)
 
     const unsub5 = api()?.onProcessingStarted?.((info: any) => {
       set((state) => {
@@ -309,13 +319,15 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
           }]
         }
       })
-    }) || (() => {})
+    })
+    if (unsub5) listeners.push(unsub5)
 
     const unsub6 = api()?.onProcessingCompleted?.((info: any) => {
       set((state) => ({
         processingContacts: state.processingContacts.filter(p => p.contactId !== info.contactId)
       }))
-    }) || (() => {})
+    })
+    if (unsub6) listeners.push(unsub6)
 
     const unsub7 = api()?.onMessageFlowUpdate?.((info: any) => {
       set((state) => {
@@ -329,7 +341,8 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
         const flow = [entry, ...state.messageFlow].slice(0, 50)
         return { messageFlow: flow }
       })
-    }) || (() => {})
+    })
+    if (unsub7) listeners.push(unsub7)
 
     const staleTimer = setInterval(() => {
       set((state) => {
@@ -342,16 +355,17 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
       })
     }, 10000)
 
-    return () => {
-      unsub1()
-      unsub2()
-      unsub3()
-      unsub4()
-      unsub5()
-      unsub6()
-      unsub7()
+    const cleanup = () => {
+      listeners.forEach(fn => fn())
       clearInterval(staleTimer)
+      ;(useAIReplyStore as any)._listenersSetup = false
+      ;(useAIReplyStore as any)._listenersCleanup = null
     }
+
+    ;(useAIReplyStore as any)._listenersSetup = true
+    ;(useAIReplyStore as any)._listenersCleanup = cleanup
+
+    return cleanup
   },
 
   fetchAvailableModels: async (type, baseUrl, apiKey) => {
