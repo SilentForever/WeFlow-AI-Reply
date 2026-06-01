@@ -119,7 +119,7 @@ export default function AIReplyPage() {
       </div>
 
       <div className="ai-reply-tabs">
-        {tabs.map(tab => (
+        {tabs.map((tab: any) => (
           <button
             key={tab.id}
             className={`tab ${activeTab === tab.id ? 'active' : ''}`}
@@ -393,7 +393,7 @@ function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'erro
       {store.replyLogs.length > 0 && (
         <div className="recent-logs">
           <h3>最近回复</h3>
-          {store.replyLogs.slice(-5).reverse().map(log => {
+          {store.replyLogs.slice(-5).reverse().map((log: any) => {
             const initial = (log.contactName || '?').charAt(0)
             return (
             <div key={log.id} className={`log-item ${!log.success && log.errorMessage ? 'log-error' : ''}`} onClick={() => store.setSelectedLogDetail(log)}>
@@ -462,7 +462,7 @@ function ModelsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' 
             <p className="hint">点击"添加模型"配置你的第一个 AI 模型</p>
           </div>
         ) : (
-          store.models.map(model => (
+          store.models.map((model: any) => (
             <ModelCard
               key={model.id}
               model={model}
@@ -631,7 +631,7 @@ function SkillsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' 
             <div className="test-select-group">
               <label>角色</label>
               <select value={testSkillId} onChange={e => setTestSkillId(e.target.value)}>
-                {store.skills.map(skill => (
+                {store.skills.map((skill: any) => (
                   <option key={skill.id} value={skill.id}>{skill.name}</option>
                 ))}
               </select>
@@ -642,7 +642,7 @@ function SkillsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' 
                 {store.models.length === 0 ? (
                   <option value="">暂无模型</option>
                 ) : (
-                  store.models.map(model => (
+                  store.models.map((model: any) => (
                     <option key={model.id} value={model.id}>{model.name}</option>
                   ))
                 )}
@@ -666,8 +666,8 @@ function SkillsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' 
         {store.testReplyResult && (
           <div className="test-reply-result">
             <div className="test-reply-meta">
-              <span className="meta-item"><UserCircle size={12} /> {store.skills.find(s => s.id === testSkillId)?.name || '未知角色'}</span>
-              <span className="meta-item"><Brain size={12} /> {store.models.find(m => m.id === testModelId)?.name || '未知模型'}</span>
+              <span className="meta-item"><UserCircle size={12} /> {store.skills.find((s: any) => s.id === testSkillId)?.name || '未知角色'}</span>
+              <span className="meta-item"><Brain size={12} /> {store.models.find((m: any) => m.id === testModelId)?.name || '未知模型'}</span>
               {store.testReplyLatencyMs != null && (
                 <span className="meta-item"><Activity size={12} /> {store.testReplyLatencyMs}ms</span>
               )}
@@ -684,7 +684,7 @@ function SkillsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' 
       </div>
 
       <div className="skill-list">
-        {store.skills.map(skill => (
+        {store.skills.map((skill: any) => (
           <div
             key={skill.id}
             className={`skill-card ${skill.id === store.activeSkillId ? 'active' : ''}`}
@@ -699,7 +699,7 @@ function SkillsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' 
               </div>
               <p className="skill-desc">{skill.description}</p>
               <div className="skill-tags">
-                {skill.persona.identity.tags.map((tag, i) => (
+                {skill.persona.identity.tags.map((tag: any, i: number) => (
                   <span key={i} className="tag">{tag}</span>
                 ))}
               </div>
@@ -915,7 +915,7 @@ function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 
       await store.deleteReplyLogs(ids)
       toast(`已删除 ${ids.length} 条日志`, 'success')
       if (selectedLog && ids.includes(selectedLog.id)) {
-        setSelectedLog(store.replyLogs.find(l => !ids.includes(l.id)) || null)
+        setSelectedLog(store.replyLogs.find((l: any) => !ids.includes(l.id)) || null)
       }
     } catch (e: any) {
       toast(e.message || '删除失败', 'error')
@@ -938,7 +938,7 @@ function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 
     store.fetchReplyLogsCount()
   }, [page])
 
-  const filteredLogs = store.replyLogs.filter(log => {
+  const filteredLogs = store.replyLogs.filter((log: any) => {
     if (statusFilter === 'success' && !log.success) return false
     if (statusFilter === 'error' && log.success) return false
     if (contactFilter && !log.contactName.includes(contactFilter)) return false
@@ -959,7 +959,7 @@ function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 
     if (selectedIds.size === filteredLogs.length) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(filteredLogs.map(l => l.id)))
+      setSelectedIds(new Set(filteredLogs.map((l: any) => l.id)))
     }
   }
 
@@ -1029,7 +1029,7 @@ function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 
             </label>
           </div>
           <div className="log-list">
-            {filteredLogs.map(log => {
+            {filteredLogs.map((log: any) => {
               const statusClass = !log.success && log.errorMessage ? 'log-error' : (!log.sent ? 'log-warning' : '')
               const statusLabel = !log.success && log.errorMessage
                 ? '失败'

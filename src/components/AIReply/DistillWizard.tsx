@@ -213,7 +213,7 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
         </div>
 
         <div className="wizard-steps">
-          {STEPS.map(s => (
+          {STEPS.map((s: any) => (
             <div key={s.num} className={`wizard-step ${step >= s.num ? 'active' : ''} ${step > s.num ? 'done' : ''}`}>
               <span className="step-num">{step > s.num ? <CheckCircle2 size={16} /> : s.num}</span>
               <span className="step-label">{s.label}</span>
@@ -375,9 +375,9 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
                   </div>
                   <div className="progress-steps">
                     轮次 {progress.currentRound}/{progress.totalRounds}
-                    {progress.roundResults.filter(r => r.status === 'running').length > 0 && (
-                      <span> - {(() => {
-                        const name = progress.roundResults.find(r => r.status === 'running')?.name || ''
+                    {progress.roundResults.filter((r: any) => r.status === 'running').length > 0 && (
+                      <>
+                        const name = progress.roundResults.find((r: any) => r.status === 'running')?.name || ''
                         const nameMap: Record<string, string> = {
                           expressionDNA: '表达DNA提取',
                           mentalModels: '思维模式分析',
@@ -433,9 +433,9 @@ export default function DistillWizard({ open, onClose, onCompleted }: DistillWiz
                       </div>
                     ))}
                   </div>
-                  {progress.roundResults.some(r => r.status === 'error') && (
+                  {progress.roundResults.some((r: any) => r.status === 'error') && (
                     <div className="progress-warning">
-                      部分轮次失败（{progress.roundResults.filter(r => r.status === 'error').length}/{progress.totalRounds}），将继续尝试后续步骤
+                      部分轮次失败（{progress.roundResults.filter((r: any) => r.status === 'error').length}/{progress.totalRounds}），将继续尝试后续步骤
                     </div>
                   )}
                 </div>
