@@ -85,6 +85,9 @@ export default function AIReplyPage() {
                 await store.checkPrerequisites()
                 if (store.prerequisitesAllPassed) {
                   store.start()
+                } else {
+                  const failed = (store.prerequisiteChecks || []).filter(c => !c.passed).map(c => c.name)
+                  store.setError?.(`无法启动：${failed.join('、')} 未满足，请先完成配置`)
                 }
               }} disabled={store.isLoading}>
                 {store.isLoading ? <Loader2 size={16} className="spin" /> : <Play size={16} />}

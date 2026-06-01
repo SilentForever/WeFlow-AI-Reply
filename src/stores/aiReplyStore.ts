@@ -79,6 +79,7 @@ export interface AIReplyState {
   checkPrerequisites: () => Promise<void>
   clearTestReply: () => void
   clearError: () => void
+  setError: (error: string) => void
 }
 
 export const useAIReplyStore = create<AIReplyState>((set, get) => ({
@@ -438,5 +439,8 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
 
   clearError: () => {
     set({ error: null })
+  },
+  setError: (error: string) => {
+    set({ error })
   }
 }))
