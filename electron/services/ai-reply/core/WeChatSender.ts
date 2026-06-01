@@ -166,7 +166,7 @@ Start-Sleep -Milliseconds 300
 Write-Output 'OK'
 `
 
-    await writeFile(scriptPath, script, 'utf-8')
+    await writeFile(scriptPath, '\uFEFF' + script, 'utf-8')
     return scriptPath
   }
 
