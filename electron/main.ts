@@ -2050,6 +2050,9 @@ function registerIpcHandlers() {
   aiReplyService.on('processingCompleted', (info: any) => {
     aiReplySender('aiReply:processingCompleted', info)
   })
+  aiReplyService.on('messageFlowUpdate', (info: any) => {
+    aiReplySender('aiReply:messageFlowUpdate', info)
+  })
 
   // AI 回复启动前检查
   ipcMain.handle('aiReply:start', async () => {

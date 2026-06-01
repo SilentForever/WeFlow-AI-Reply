@@ -353,23 +353,39 @@ function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'erro
         </div>
       </div>
 
-      {store.processingContacts.length > 0 && (
-        <div className="processing-indicator">
-          <div className="processing-header">
-            <Loader2 size={14} className="spin" />
-            <span>正在处理 {store.processingContacts.length} 条消息</span>
+      {store.messageFlow.length > 0 && (
+        <div className="message-flow">
+          <div className="message-flow-header">
+            <Activity size={14} />
+            <span>实时消息流</span>
+            <button className="message-flow-clear" onClick={() => useAIReplyStore.setState({ messageFlow: [] })}>清空</button>
           </div>
-          <div className="processing-list">
-            {store.processingContacts.map(p => (
-              <div key={p.contactId} className="processing-item">
-                <Loader2 size={12} className="spin" />
-                <span className="processing-name">{p.contactName || p.contactId || '未知联系人'}</span>
-                <span className="processing-stage">
-                  {p.stage === 'trigger' ? '检查触发规则' : p.stage === 'generating' ? '生成回复中' : p.stage === 'sending' ? '发送中' : p.stage}
-                </span>
-                <span className="processing-time">{Math.round((Date.now() - p.startedAt) / 1000)}s</span>
-              </div>
-            ))}
+          <div className="message-flow-list">
+            {store.messageFlow.slice(0, 15).map((item, i) => {
+              const stageConfig: Record<string, { icon: string; color: string; label: string }> = {
+                received:   { icon: '📩', color: '#3b82f6', label: '收到消息' },
+                buffering:  { icon: '⏳', color: '#f59e0b', label: '缓冲中' },
+                trigger:    { icon: '🔍', color: '#8b5cf6', label: '触发检查' },
+                skipped:    { icon: '⏭️', color: '#6b7280', label: '跳过' },
+                generating: { icon: '🤖', color: '#3b82f6', label: '生成回复' },
+                sending:    { icon: '📤', color: '#f59e0b', label: '发送中' },
+                sent:       { icon: '✅', color: '#22c55e', label: '已发送' },
+                generated:  { icon: '📝', color: '#22c55e', label: '已生成' },
+                error:      { icon: '❌', color: '#ef4444', label: '出错' },
+              }
+              const cfg = stageConfig[item.stage] || { icon: '•', color: '#999', label: item.stage }
+              const isFinal = ['sent', 'generated', 'skipped', 'error'].includes(item.stage)
+              const timeStr = new Date(item.timestamp).toLocaleTimeString()
+              return (
+                <div key={`${item.contactId}-${item.timestamp}-${i}`} className={`flow-item ${isFinal ? 'flow-final' : 'flow-active'}`}>
+                  <span className="flow-icon">{cfg.icon}</span>
+                  <span className="flow-contact">{item.contactName || item.contactId}</span>
+                  <span className="flow-label" style={{ color: cfg.color }}>{cfg.label}</span>
+                  {item.detail && <span className="flow-detail">{item.detail}</span>}
+                  <span className="flow-time">{timeStr}</span>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
@@ -377,19 +393,26 @@ function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'erro
       {store.replyLogs.length > 0 && (
         <div className="recent-logs">
           <h3>最近回复</h3>
-          {store.replyLogs.slice(-5).reverse().map(log => (
-            <div key={log.id} className={`log-item ${log.success ? '' : 'log-error'}`} onClick={() => store.setSelectedLogDetail(log)}>
+          {store.replyLogs.slice(-5).reverse().map(log => {
+            const initial = (log.contactName || '?').charAt(0)
+            return (
+            <div key={log.id} className={`log-item ${!log.success && log.errorMessage ? 'log-error' : ''}`} onClick={() => store.setSelectedLogDetail(log)}>
               <div className="log-header">
+                <span className="log-avatar">{initial}</span>
                 <span className="log-contact">{log.contactName}</span>
+                {!log.success && log.errorMessage && <span className="log-status-badge log-error">失败</span>}
+                {!log.sent && log.success !== false && <span className="log-status-badge log-warning">已生成</span>}
+                {log.sent && <span className="log-status-badge" style={{background:'rgba(34,197,94,0.08)',color:'#16a34a'}}>已发送</span>}
                 <span className="log-time">{new Date(log.timestamp).toLocaleTimeString()}</span>
               </div>
               <div className="log-body">
                 <div className="log-received">{log.receivedMessage}</div>
-                <ChevronRight size={14} />
+                <div className="log-arrow"><ChevronRight size={14} className="log-arrow-icon" /></div>
                 <div className="log-reply">{log.generatedReply || log.errorMessage}</div>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
@@ -1007,10 +1030,10 @@ function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 
           </div>
           <div className="log-list">
             {filteredLogs.map(log => {
-              const statusClass = !log.success ? 'log-error' : (!log.sent ? 'log-warning' : '')
-              const statusLabel = !log.success
+              const statusClass = !log.success && log.errorMessage ? 'log-error' : (!log.sent ? 'log-warning' : '')
+              const statusLabel = !log.success && log.errorMessage
                 ? '失败'
-                : (log.sent ? '已发送' : '未发送')
+                : (log.sent ? '已发送' : '已生成')
               return (
               <div
                 key={log.id}
@@ -1025,6 +1048,7 @@ function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 
                 />
                 <div className="log-content" onClick={() => store.setSelectedLogDetail(log)}>
                   <div className="log-header">
+                    <span className="log-avatar">{(log.contactName || '?').charAt(0)}</span>
                     <span className="log-contact">{log.contactName}</span>
                     <span className={`log-status-badge ${statusClass}`}>
                       {statusLabel}
@@ -1036,7 +1060,7 @@ function LogsTab({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 
                   </div>
                   <div className="log-body">
                     <div className="log-received">{log.receivedMessage}</div>
-                    <ChevronRight size={14} />
+                    <div className="log-arrow"><ChevronRight size={14} className="log-arrow-icon" /></div>
                     <div className="log-reply">{log.generatedReply || log.errorMessage}</div>
                   </div>
                 </div>

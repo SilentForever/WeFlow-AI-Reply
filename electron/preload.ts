@@ -695,6 +695,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const listener = (_: any, info: any) => callback(info)
       ipcRenderer.on('aiReply:processingCompleted', listener)
       return () => ipcRenderer.removeListener('aiReply:processingCompleted', listener)
+    },
+    onMessageFlowUpdate: (callback: (info: any) => void) => {
+      const listener = (_: any, info: any) => callback(info)
+      ipcRenderer.on('aiReply:messageFlowUpdate', listener)
+      return () => ipcRenderer.removeListener('aiReply:messageFlowUpdate', listener)
     }
   }
 })

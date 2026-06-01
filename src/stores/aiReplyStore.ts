@@ -33,6 +33,7 @@ export interface AIReplyState {
   prerequisiteChecks: { name: string; passed: boolean; message: string; configKey?: string }[] | null
   prerequisitesAllPassed: boolean | null
   processingContacts: { contactId: string; contactName: string; stage: string; startedAt: number }[]
+  messageFlow: { contactId: string; contactName: string; stage: string; detail: string; timestamp: number }[]
 
   start: () => Promise<void>
   pause: () => Promise<void>
@@ -112,6 +113,7 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   prerequisiteChecks: null,
   prerequisitesAllPassed: null,
   processingContacts: [],
+  messageFlow: [],
 
   start: async () => {
     set({ isLoading: true, error: null })
@@ -315,6 +317,20 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
       }))
     }) || (() => {})
 
+    const unsub7 = api()?.onMessageFlowUpdate?.((info: any) => {
+      set((state) => {
+        const entry = {
+          contactId: info.contactId,
+          contactName: info.contactName,
+          stage: info.stage,
+          detail: info.detail || '',
+          timestamp: Date.now()
+        }
+        const flow = [entry, ...state.messageFlow].slice(0, 50)
+        return { messageFlow: flow }
+      })
+    }) || (() => {})
+
     const staleTimer = setInterval(() => {
       set((state) => {
         const now = Date.now()
@@ -333,6 +349,7 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
       unsub4()
       unsub5()
       unsub6()
+      unsub7()
       clearInterval(staleTimer)
     }
   },

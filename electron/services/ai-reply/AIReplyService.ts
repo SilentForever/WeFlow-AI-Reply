@@ -22,6 +22,7 @@ export interface AIReplyServiceEvents {
   replyError: (error: { contactId: string; error: string }) => void
   processingStarted: (info: { contactId: string; contactName: string; stage: string }) => void
   processingCompleted: (info: { contactId: string; contactName: string; success: boolean }) => void
+  messageFlowUpdate: (info: { contactId: string; contactName: string; stage: string; detail?: string }) => void
 }
 
 export class AIReplyService extends EventEmitter {
@@ -349,14 +350,32 @@ export class AIReplyService extends EventEmitter {
     this.dailyStats.receivedCount++
     this.activeContactsToday.add(message.contactId)
     this.emit('messageReceived', message)
+    this.emit('messageFlowUpdate', {
+      contactId: message.contactId,
+      contactName: message.contactName,
+      stage: 'received',
+      detail: message.content.slice(0, 50)
+    })
 
     const existingEntry = this.messageBuffer.get(message.contactId)
     if (existingEntry) {
       clearTimeout(existingEntry.timer)
       existingEntry.messages.push(message)
       console.log(`[AIReplyService] 消息缓冲: ${message.contactId} 有 ${existingEntry.messages.length} 条消息等待合并`)
+      this.emit('messageFlowUpdate', {
+        contactId: message.contactId,
+        contactName: message.contactName,
+        stage: 'buffering',
+        detail: `已缓冲 ${existingEntry.messages.length} 条消息`
+      })
     } else {
       console.log(`[AIReplyService] 开始缓冲消息: ${message.contactId}`)
+      this.emit('messageFlowUpdate', {
+        contactId: message.contactId,
+        contactName: message.contactName,
+        stage: 'buffering',
+        detail: '等待合并更多消息...'
+      })
       const timer = setTimeout(() => {
         this.processBufferedMessages(message.contactId)
       }, this.messageBufferDelay)
@@ -376,26 +395,31 @@ export class AIReplyService extends EventEmitter {
     this.messageBuffer.delete(contactId)
 
     if (this.processingContacts.has(contactId)) {
+      this.emit('messageFlowUpdate', { contactId, contactName: entry.contactName, stage: 'skipped', detail: '该联系人正在处理中，跳过重复消息' })
       return
     }
     this.processingContacts.add(contactId)
 
     try {
       this.emit('processingStarted', { contactId, contactName: entry.contactName, stage: 'trigger' })
+      this.emit('messageFlowUpdate', { contactId, contactName: entry.contactName, stage: 'trigger', detail: '检查触发规则...' })
 
       const triggerResult = this.triggerEngine.shouldReply(entry.messages[0])
       if (!triggerResult.shouldReply) {
         this.processingContacts.delete(contactId)
+        this.emit('messageFlowUpdate', { contactId, contactName: entry.contactName, stage: 'skipped', detail: triggerResult.reason || '不满足触发条件' })
         this.emit('processingCompleted', { contactId, contactName: entry.contactName, success: false })
         return
       }
 
       this.emit('processingStarted', { contactId, contactName: entry.contactName, stage: 'generating' })
+      this.emit('messageFlowUpdate', { contactId, contactName: entry.contactName, stage: 'generating', detail: '正在生成回复...' })
 
       const skillId = this.contactSkillMappings.get(contactId) || this.activeSkillId
       const skill = this.skillEngine.getSkill(skillId)
       if (!skill) {
         this.processingContacts.delete(contactId)
+        this.emit('messageFlowUpdate', { contactId, contactName: entry.contactName, stage: 'error', detail: '未找到角色配置' })
         this.emit('processingCompleted', { contactId, contactName: entry.contactName, success: false })
         return
       }
@@ -404,6 +428,7 @@ export class AIReplyService extends EventEmitter {
       if (!adapter) {
         this.emit('replyError', { contactId, error: '未配置模型' })
         this.processingContacts.delete(contactId)
+        this.emit('messageFlowUpdate', { contactId, contactName: entry.contactName, stage: 'error', detail: '未配置模型' })
         this.emit('processingCompleted', { contactId, contactName: entry.contactName, success: false })
         return
       }
@@ -462,6 +487,7 @@ export class AIReplyService extends EventEmitter {
 
         if (this.autoReplyEnabled && this.wechatSender.isEnabled()) {
           this.emit('processingStarted', { contactId, contactName, stage: 'sending' })
+          this.emit('messageFlowUpdate', { contactId, contactName, stage: 'sending', detail: '正在发送到微信...' })
           try {
             const sendResult = await this.wechatSender.sendTextMessage(
               contactId,
@@ -497,7 +523,7 @@ export class AIReplyService extends EventEmitter {
           modelId: this.activeModelId,
           modelName: adapter.getModelInfo().name,
           latencyMs,
-          success: sent || !this.autoReplyEnabled,
+          success: sent,
           sent,
           errorMessage: sendError
         }
@@ -509,6 +535,12 @@ export class AIReplyService extends EventEmitter {
         }
         this.emit('replySent', log)
         this.emit('processingCompleted', { contactId, contactName, success: !sendError })
+        this.emit('messageFlowUpdate', {
+          contactId,
+          contactName,
+          stage: sent ? 'sent' : 'generated',
+          detail: sent ? '已发送到微信' : (sendError || '回复已生成（未发送）')
+        })
 
       } catch (error) {
         const latencyMs = Date.now() - startTime
@@ -533,6 +565,12 @@ export class AIReplyService extends EventEmitter {
         this.saveLogsToDisk()
         this.dailyStats.errorCount++
         this.emit('replyError', { contactId: contactId, error: log.errorMessage || 'Unknown error' })
+        this.emit('messageFlowUpdate', {
+          contactId,
+          contactName,
+          stage: 'error',
+          detail: log.errorMessage || '处理出错'
+        })
         this.emit('processingCompleted', { contactId, contactName, success: false })
       }
     } finally {
