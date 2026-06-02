@@ -243,7 +243,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          npx electron-builder --win nsis --x64 --publish never '--config.publish.channel=preview' '--config.artifactName=${productName}-preview-x64-Setup.${ext}'
+          npx electron-builder --win nsis portable --x64 --publish never '--config.publish.channel=preview' '--config.artifactName=${productName}-preview-x64-Setup.${ext}' '--config.portable.artifactName=${productName}-preview-x64-Portable.${ext}'
 
       - name: Upload Windows x64 assets to fixed preview release
         env:
@@ -295,7 +295,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
-          npx electron-builder --win nsis --arm64 --publish never '--config.publish.channel=preview-arm64' '--config.artifactName=${productName}-preview-arm64-Setup.${ext}'
+          npx electron-builder --win nsis portable --arm64 --publish never '--config.publish.channel=preview-arm64' '--config.artifactName=${productName}-preview-arm64-Setup.${ext}' '--config.portable.artifactName=${productName}-preview-arm64-Portable.${ext}'
 
       - name: Upload Windows arm64 assets to fixed preview release
         env:
