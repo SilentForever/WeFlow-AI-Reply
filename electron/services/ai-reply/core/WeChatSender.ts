@@ -109,9 +109,9 @@ $ErrorActionPreference = 'Stop'
 function Write-Step {
   param([string]$Name, [string]$Status, [string]$Detail = '')
   if ($Detail) {
-    Write-Output "STEP:$Name`:$Status`:$Detail"
+    Write-Output "STEP:${Name}:${Status}:${Detail}"
   } else {
-    Write-Output "STEP:$Name`:$Status"
+    Write-Output "STEP:${Name}:${Status}"
   }
 }
 
