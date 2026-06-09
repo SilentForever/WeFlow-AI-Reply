@@ -1,5 +1,5 @@
 ﻿import './preload-env'
-import { app, BrowserWindow, ipcMain, nativeTheme, session, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, session, Tray, Menu, nativeImage, dialog } from 'electron'
 import { Worker } from 'worker_threads'
 import { randomUUID } from 'crypto'
 import { join, dirname } from 'path'
@@ -4990,6 +4990,18 @@ app.whenReady().then(async () => {
       mainWindow = createWindow()
     }
   })
+}).catch((error) => {
+  const message = error instanceof Error ? error.stack || error.message : String(error)
+  console.error('[Startup] Failed to initialize app:', message)
+  updateSplashProgress(100, '启动失败，请查看错误提示')
+
+  setTimeout(() => {
+    try {
+      dialog.showErrorBox('WeFlow 启动失败', message || '未知启动错误')
+    } catch {}
+    closeSplash()
+    app.quit()
+  }, 300)
 })
 
 const shutdownAppServices = async (): Promise<void> => {
