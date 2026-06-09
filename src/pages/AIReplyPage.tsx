@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAIReplyStore } from '../stores/aiReplyStore'
-import type { ModelConfig, ModelType, Skill, TriggerRules, OllamaConfig, OpenAICompatibleConfig, ReplyLog } from '../types/ai-reply'
+import type { AIReplySenderConfig, ModelConfig, ModelType, SenderId, Skill, TriggerRules, OllamaConfig, OpenAICompatibleConfig, ReplyLog } from '../types/ai-reply'
 import { DEFAULT_TRIGGER_RULES } from '../types/ai-reply'
 import {
   Bot, Play, Pause, Square, Plus, Trash2, Settings, TestTube,
@@ -46,6 +46,7 @@ export default function AIReplyPage() {
     store.fetchDailyStats()
     store.fetchReplyLogs()
     store.fetchAutoReplyEnabled()
+    store.fetchSenderConfig()
     store.fetchSSEStatus()
     store.checkPrerequisites()
     const cleanup = store.setupListeners()
@@ -82,12 +83,16 @@ export default function AIReplyPage() {
           <div className="service-controls">
             {store.status === 'stopped' && (
               <button className="btn btn-primary" onClick={async () => {
-                await store.checkPrerequisites()
-                if (store.prerequisitesAllPassed) {
-                  store.start()
-                } else {
-                  const failed = (store.prerequisiteChecks || []).filter((c: any) => !c.passed).map((c: any) => c.name)
-                  store.setError?.(`无法启动：${failed.join('、')} 未满足，请先完成配置`)
+                try {
+                  const result = await store.checkPrerequisites()
+                  if (result?.allPassed) {
+                    await store.start()
+                  } else {
+                    const failed = (result?.checks || store.prerequisiteChecks || []).filter((c: any) => !c.passed).map((c: any) => c.name)
+                    store.setError?.(`无法启动：${failed.join('、')} 未满足，请先完成配置`)
+                  }
+                } catch (e: any) {
+                  store.setError?.(e.message || '启动失败')
                 }
               }} disabled={store.isLoading}>
                 {store.isLoading ? <Loader2 size={16} className="spin" /> : <Play size={16} />}
@@ -284,7 +289,8 @@ function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'erro
 
   const handleToggleAutoReply = async (checked: boolean) => {
     try {
-      store.setAutoReplyEnabled(checked)
+      await store.setAutoReplyEnabled(checked)
+      await store.checkPrerequisites()
       toast(checked ? '自动回复发送已开启' : '自动回复发送已关闭', 'info')
     } catch (e: any) {
       toast(e.message || '操作失败', 'error')
@@ -352,6 +358,8 @@ function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'erro
           )}
         </div>
       </div>
+
+      <SenderSettingsSection toast={toast} />
 
       {store.messageFlow.length > 0 && (
         <div className="message-flow">
@@ -426,6 +434,226 @@ function DashboardTab({ toast }: { toast: (msg: string, type?: 'success' | 'erro
       </div>
 
       <LogDetailDialog log={store.selectedLogDetail} onClose={() => store.setSelectedLogDetail(null)} />
+    </div>
+  )
+}
+
+const senderOptions: Array<{ id: SenderId; label: string; description: string; risk: string; disabled?: boolean }> = [
+  {
+    id: 'ui-automation',
+    label: 'Windows UI 自动化',
+    description: '通过窗口搜索、剪贴板粘贴和发送热键投递，适合当前本机微信已登录的场景。',
+    risk: '需要 Windows 桌面和微信窗口可访问'
+  },
+  {
+    id: 'weclaw-http',
+    label: 'WeClaw HTTP',
+    description: '调用外部 WeClaw 服务发送，可做到更无感，但需要单独运行兼容的 HTTP 桥接服务。',
+    risk: '依赖外部服务 /api/send 和 /health'
+  },
+  {
+    id: 'manual',
+    label: '手动确认',
+    description: '只生成回复并写入日志，不会自动投递到微信。',
+    risk: '不会自动发送'
+  },
+  {
+    id: 'wechatferry',
+    label: 'WeChatFerry（预留）',
+    description: '接口占位，当前构建未包含可用的 WeChatFerry 发送实现。',
+    risk: '当前不可用',
+    disabled: true
+  }
+]
+
+function SenderSettingsSection({ toast }: { toast: (msg: string, type?: 'success' | 'error' | 'info') => void }) {
+  const store = useAIReplyStore()
+  const { senderConfig, senderHealth, senderHealthLoading } = store
+  const [saving, setSaving] = useState(false)
+  const [localWeClaw, setLocalWeClaw] = useState<AIReplySenderConfig['weclawHttp']>(senderConfig.weclawHttp)
+
+  useEffect(() => {
+    setLocalWeClaw(senderConfig.weclawHttp)
+  }, [
+    senderConfig.weclawHttp.enabled,
+    senderConfig.weclawHttp.baseUrl,
+    senderConfig.weclawHttp.token,
+    senderConfig.weclawHttp.timeoutMs
+  ])
+
+  const activeOption = senderOptions.find(option => option.id === senderConfig.activeSenderId) || senderOptions[0]
+  const healthAvailable = senderHealth?.available === true
+  const healthLabel = senderHealth
+    ? healthAvailable ? '可用' : '不可用'
+    : '未检查'
+
+  const saveConfig = async (patch: Partial<AIReplySenderConfig>, successMessage: string) => {
+    setSaving(true)
+    try {
+      await store.setSenderConfig(patch)
+      toast(successMessage, 'success')
+    } catch (e: any) {
+      toast(e.message || '发送通道配置保存失败', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSenderChange = async (senderId: SenderId) => {
+    if (senderId === 'wechatferry') {
+      toast('WeChatFerry 发送通道当前只是预留接口，暂不可用', 'error')
+      return
+    }
+
+    const patch: Partial<AIReplySenderConfig> = { activeSenderId: senderId }
+    if (senderId === 'weclaw-http') {
+      patch.weclawHttp = { ...senderConfig.weclawHttp, enabled: true }
+    }
+    await saveConfig(patch, `发送通道已切换为 ${senderOptions.find(option => option.id === senderId)?.label || senderId}`)
+  }
+
+  const handleHealthCheck = async () => {
+    await store.fetchSenderHealth(senderConfig.activeSenderId)
+    toast('发送通道健康检查已刷新', 'info')
+  }
+
+  const saveWeClawConfig = () => {
+    saveConfig({
+      activeSenderId: 'weclaw-http',
+      weclawHttp: {
+        ...localWeClaw,
+        enabled: true,
+        baseUrl: localWeClaw.baseUrl.trim(),
+        token: localWeClaw.token?.trim() || undefined,
+        timeoutMs: Math.max(1000, Number(localWeClaw.timeoutMs) || 10000)
+      }
+    }, 'WeClaw HTTP 配置已保存')
+  }
+
+  return (
+    <div className="sender-settings-section">
+      <div className="section-header">
+        <div>
+          <h3><Shield size={16} /> 发送通道</h3>
+          <p className="section-subtitle">选择 AI 回复生成后如何投递到微信；当前实际投递以健康检查和前置条件为准。</p>
+        </div>
+        <button className="btn btn-sm" onClick={handleHealthCheck} disabled={senderHealthLoading}>
+          {senderHealthLoading ? <Loader2 size={12} className="spin" /> : <RefreshCw size={12} />}
+          检查通道
+        </button>
+      </div>
+
+      <div className="sender-settings-grid">
+        <label className="sender-field">
+          <span>当前通道</span>
+          <select
+            value={senderConfig.activeSenderId}
+            onChange={e => handleSenderChange(e.target.value as SenderId)}
+            disabled={saving}
+          >
+            {senderOptions.map(option => (
+              <option key={option.id} value={option.id} disabled={option.disabled}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className={`sender-health ${healthAvailable ? 'available' : 'unavailable'}`}>
+          {healthAvailable ? <CheckCircle2 size={16} /> : <XCircle size={16} />}
+          <div>
+            <strong>{healthLabel}</strong>
+            <span>{senderHealth?.reason || activeOption.risk}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="sender-description">
+        <Send size={14} />
+        <span>{activeOption.description}</span>
+      </div>
+
+      {senderConfig.activeSenderId === 'ui-automation' && (
+        <div className="sender-config-card">
+          <label className="sender-field">
+            <span>发送热键</span>
+            <select
+              value={senderConfig.uiAutomation.sendHotkey || 'enter'}
+              onChange={e => saveConfig({
+                uiAutomation: {
+                  ...senderConfig.uiAutomation,
+                  sendHotkey: e.target.value as 'enter' | 'ctrl-enter'
+                }
+              }, 'UI 自动化热键已更新')}
+              disabled={saving}
+            >
+              <option value="enter">Enter</option>
+              <option value="ctrl-enter">Ctrl + Enter</option>
+            </select>
+          </label>
+          <label className="sender-checkbox">
+            <input
+              type="checkbox"
+              checked={senderConfig.uiAutomation.restoreClipboard !== false}
+              onChange={e => saveConfig({
+                uiAutomation: {
+                  ...senderConfig.uiAutomation,
+                  restoreClipboard: e.target.checked
+                }
+              }, '剪贴板策略已更新')}
+              disabled={saving}
+            />
+            <span>发送后恢复原剪贴板内容</span>
+          </label>
+          <p className="sender-note">发送前请保持微信已登录；若目标会话无法搜索到，发送器会返回失败并写入错误日志。</p>
+        </div>
+      )}
+
+      {senderConfig.activeSenderId === 'weclaw-http' && (
+        <div className="sender-config-card">
+          <div className="sender-settings-grid">
+            <label className="sender-field">
+              <span>Base URL</span>
+              <input
+                value={localWeClaw.baseUrl}
+                onChange={e => setLocalWeClaw({ ...localWeClaw, baseUrl: e.target.value })}
+                placeholder="http://127.0.0.1:19888"
+              />
+            </label>
+            <label className="sender-field">
+              <span>超时（ms）</span>
+              <input
+                type="number"
+                min={1000}
+                value={localWeClaw.timeoutMs}
+                onChange={e => setLocalWeClaw({ ...localWeClaw, timeoutMs: Number(e.target.value) || 10000 })}
+              />
+            </label>
+          </div>
+          <label className="sender-field">
+            <span>Token（可选）</span>
+            <input
+              value={localWeClaw.token || ''}
+              onChange={e => setLocalWeClaw({ ...localWeClaw, token: e.target.value })}
+              placeholder="Bearer token，可留空"
+            />
+          </label>
+          <div className="sender-actions">
+            <button className="btn btn-primary" onClick={saveWeClawConfig} disabled={saving}>
+              {saving ? <Loader2 size={14} className="spin" /> : <CheckCircle2 size={14} />}
+              保存 WeClaw 配置
+            </button>
+          </div>
+          <p className="sender-note">当前内置协议会调用 `GET /health` 和 `POST /api/send`，发送体包含 `to`、`text`、`type=text`、`isGroup`。</p>
+        </div>
+      )}
+
+      {senderConfig.activeSenderId === 'manual' && (
+        <div className="sender-config-card sender-warning-card">
+          <AlertTriangle size={16} />
+          <span>手动模式不会自动发送微信消息。如需只生成回复，请关闭上方“自动回复发送”开关；如需全自动，请切回 Windows UI 自动化或可用的 WeClaw HTTP。</span>
+        </div>
+      )}
     </div>
   )
 }

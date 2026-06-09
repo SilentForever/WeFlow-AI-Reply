@@ -1929,6 +1929,17 @@ function registerIpcHandlers() {
 
   // 获取当前用户昵称
   async function fetchSelfNickname(): Promise<string> {
+    const myWxid = getSelfWxid()
+    if (myWxid) {
+      try {
+        const localProfile = await chatService.getContactAvatar(myWxid)
+        const localName = String(localProfile?.displayName || '').trim()
+        if (localName && localName !== myWxid) {
+          return localName
+        }
+      } catch {}
+    }
+
     const httpApiEnabled = configService?.get('httpApiEnabled' as any)
     const httpApiPort = configService?.get('httpApiPort' as any) || 5031
     const httpApiHost = String(configService?.get('httpApiHost' as any) || '127.0.0.1').trim() || '127.0.0.1'
@@ -1946,7 +1957,7 @@ function registerIpcHandlers() {
         return profileData.nickname || profileData.nickName || profileData.name || ''
       }
     } catch {}
-    return ''
+    return myWxid
   }
 
   // 获取当前用户 wxid
@@ -1989,9 +2000,12 @@ function registerIpcHandlers() {
     if (cfg.triggerRules) {
       aiReplyService.setTriggerRules(cfg.triggerRules)
     }
-    if (cfg.autoReplyEnabled !== undefined) {
-      aiReplyService.setAutoReplyEnabled(cfg.autoReplyEnabled)
+    if (cfg.senderConfig) {
+      aiReplyService.setSenderConfig(cfg.senderConfig)
     }
+    aiReplyService.setAutoReplyEnabled(cfg.autoReplyEnabled !== undefined
+      ? Boolean(cfg.autoReplyEnabled)
+      : aiReplyService.isAutoReplyEnabled())
     if (cfg.dailyStats) {
       aiReplyService.setDailyStats(cfg.dailyStats)
     }
@@ -2011,6 +2025,7 @@ function registerIpcHandlers() {
       activeSkillId: aiReplyService.getActiveSkillId(),
       triggerRules: aiReplyService.getTriggerRules(),
       autoReplyEnabled: aiReplyService.isAutoReplyEnabled(),
+      senderConfig: aiReplyService.getSenderConfig(),
       contactSkillMappings: aiReplyService.getContactSkillMappings(),
       dailyStats: aiReplyService.getDailyStats()
     }
@@ -2054,72 +2069,7 @@ function registerIpcHandlers() {
     aiReplySender('aiReply:messageFlowUpdate', info)
   })
 
-  // AI 回复启动前检查
-  ipcMain.handle('aiReply:start', async () => {
-    // 前置条件检查
-    const checks: { name: string; passed: boolean; message: string }[] = []
-
-    // 检查 1: httpApiEnabled 必须启用
-    const httpApiEnabled = configService?.get('httpApiEnabled' as any)
-    if (httpApiEnabled !== true) {
-      checks.push({
-        name: 'HTTP API',
-        passed: false,
-        message: '请先在设置中启用 HTTP API 服务'
-      })
-    }
-
-    // 检查 2: messagePushEnabled 必须启用
-    const messagePushEnabled = configService?.get('messagePushEnabled' as any)
-    if (messagePushEnabled !== true) {
-      checks.push({
-        name: '消息推送',
-        passed: false,
-        message: '请先在设置中启用消息推送功能'
-      })
-    }
-
-    // 检查 3: httpApiToken 不能为空
-    const httpApiToken = String(configService?.get('httpApiToken' as any) || '').trim()
-    if (!httpApiToken) {
-      checks.push({
-        name: 'API Token',
-        passed: false,
-        message: '请先在设置中配置 HTTP API Token'
-      })
-    }
-
-    // 如果有检查失败，返回详细的错误信息
-    const failedChecks = checks.filter(c => !c.passed)
-    if (failedChecks.length > 0) {
-      return {
-        success: false,
-        error: failedChecks.map(c => c.message).join('；'),
-        checks
-      }
-    }
-
-    // 确保 SSE 配置是最新的
-    const { sseUrl, accessToken } = getSSEConfig()
-    aiReplyService.setSSEConfig(sseUrl, accessToken)
-
-    // 更新自身 wxid
-    const selfWxid = getSelfWxid()
-    aiReplyService.setSelfWxid(selfWxid)
-
-    try {
-      await aiReplyService.start()
-      return { success: true, checks: checks.map(c => ({ ...c, passed: true })) }
-    } catch (e: any) {
-      return { success: false, error: e.message, checks }
-    }
-  })
-  ipcMain.handle('aiReply:pause', async () => { aiReplyService.pause(); return { success: true } })
-  ipcMain.handle('aiReply:resume', async () => { aiReplyService.resume(); return { success: true } })
-  ipcMain.handle('aiReply:stop', async () => { aiReplyService.stop(); return { success: true } })
-  ipcMain.handle('aiReply:getStatus', async () => aiReplyService.getStatus())
-  ipcMain.handle('aiReply:getSSEStatus', async () => aiReplyService.getSSEStatus())
-  ipcMain.handle('aiReply:checkPrerequisites', async () => {
+  async function buildAIReplyPrerequisiteChecks() {
     const checks: { name: string; passed: boolean; message: string; configKey?: string }[] = []
 
     const httpApiEnabled = configService?.get('httpApiEnabled' as any)
@@ -2155,6 +2105,12 @@ function registerIpcHandlers() {
     })
 
     const triggerRules = aiReplyService.getTriggerRules()
+    checks.push({
+      name: '触发规则',
+      passed: triggerRules?.enabled === true,
+      message: triggerRules?.enabled === true ? '已启用' : '未启用，请在触发规则中开启自动回复'
+    })
+
     const listenMode = triggerRules?.listenMode
     const hasContacts = listenMode === 'all'
       || (listenMode === 'specific' && (triggerRules?.targetContacts?.length > 0))
@@ -2166,6 +2122,60 @@ function registerIpcHandlers() {
       message: hasContacts ? '已配置' : '未配置，请在 AI 回复页面添加监听联系人'
     })
 
+    const senderConfig = aiReplyService.getSenderConfig()
+    const autoReplyEnabled = aiReplyService.isAutoReplyEnabled()
+    const senderHealth = await aiReplyService.getSenderHealth(senderConfig.activeSenderId)
+    const senderAllowsDelivery = senderConfig.activeSenderId !== 'manual'
+    const senderPassed = !autoReplyEnabled || (senderAllowsDelivery && senderHealth.available)
+    checks.push({
+      name: '自动发送通道',
+      passed: senderPassed,
+      message: !autoReplyEnabled
+        ? '自动发送已关闭，将只生成回复'
+        : senderConfig.activeSenderId === 'manual'
+          ? '当前为手动模式，只生成不自动发送'
+          : senderHealth.available
+            ? `已就绪: ${senderConfig.activeSenderId}`
+            : (senderHealth.reason || `发送通道不可用: ${senderConfig.activeSenderId}`)
+    })
+
+    return checks
+  }
+
+  // AI 回复启动前检查
+  ipcMain.handle('aiReply:start', async () => {
+    const checks = await buildAIReplyPrerequisiteChecks()
+    const failedChecks = checks.filter(c => !c.passed)
+    if (failedChecks.length > 0) {
+      return {
+        success: false,
+        error: failedChecks.map(c => c.message).join('；'),
+        checks
+      }
+    }
+
+    // 确保 SSE 配置是最新的
+    const { sseUrl, accessToken } = getSSEConfig()
+    aiReplyService.setSSEConfig(sseUrl, accessToken)
+
+    // 更新自身 wxid
+    const selfWxid = getSelfWxid()
+    aiReplyService.setSelfWxid(selfWxid)
+
+    try {
+      await aiReplyService.start()
+      return { success: true, checks: checks.map(c => ({ ...c, passed: true })) }
+    } catch (e: any) {
+      return { success: false, error: e.message, checks }
+    }
+  })
+  ipcMain.handle('aiReply:pause', async () => { aiReplyService.pause(); return { success: true } })
+  ipcMain.handle('aiReply:resume', async () => { aiReplyService.resume(); return { success: true } })
+  ipcMain.handle('aiReply:stop', async () => { aiReplyService.stop(); return { success: true } })
+  ipcMain.handle('aiReply:getStatus', async () => aiReplyService.getStatus())
+  ipcMain.handle('aiReply:getSSEStatus', async () => aiReplyService.getSSEStatus())
+  ipcMain.handle('aiReply:checkPrerequisites', async () => {
+    const checks = await buildAIReplyPrerequisiteChecks()
     const allPassed = checks.every(c => c.passed)
     return { allPassed, checks }
   })
@@ -2175,7 +2185,19 @@ function registerIpcHandlers() {
   })
   ipcMain.handle('aiReply:setConfig', async (_, config: any) => {
     configService?.set('aiReplyConfig' as any, config)
+    loadAIReplyConfig()
     return { success: true }
+  })
+  ipcMain.handle('aiReply:getSenderConfig', async () => {
+    return aiReplyService.getSenderConfig()
+  })
+  ipcMain.handle('aiReply:setSenderConfig', async (_, config: any) => {
+    const updated = aiReplyService.setSenderConfig(config)
+    saveAIReplyConfig()
+    return { success: true, config: updated }
+  })
+  ipcMain.handle('aiReply:getSenderHealth', async (_, senderId?: any) => {
+    return aiReplyService.getSenderHealth(senderId)
   })
   ipcMain.handle('aiReply:getModels', async () => {
     return modelConfigs

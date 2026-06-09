@@ -1,9 +1,9 @@
 import { exec } from 'child_process'
-import { promisify } from 'util'
-import { writeFile, unlink, mkdir } from 'fs/promises'
-import { join } from 'path'
-import { tmpdir } from 'os'
 import { existsSync } from 'fs'
+import { mkdir, unlink, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { promisify } from 'util'
 
 const execAsync = promisify(exec)
 
@@ -12,7 +12,12 @@ export interface SendResult {
   error?: string
 }
 
-type StepStatus = 'OK' | 'ERROR' | 'SKIP'
+export interface WeChatSenderOptions {
+  restoreClipboard?: boolean
+  sendHotkey?: 'enter' | 'ctrl-enter'
+}
+
+type StepStatus = 'OK' | 'ERROR' | 'WARNING'
 
 interface ParsedOutput {
   steps: { name: string; status: StepStatus; detail: string }[]
@@ -20,43 +25,50 @@ interface ParsedOutput {
   hasFinalOK: boolean
 }
 
+interface TempSendBundle {
+  scriptPath: string
+  contactPath: string
+  messagePath: string
+}
+
 function parseScriptOutput(stdout: string): ParsedOutput {
   const raw = (stdout || '').trim()
-  const steps: { name: string; status: StepStatus; detail: string }[] = []
+  const steps: ParsedOutput['steps'] = []
   let hasFinalOK = false
 
-  for (const line of raw.split('\n')) {
+  for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim()
     if (!trimmed) continue
 
-    if (trimmed.startsWith('STEP:')) {
-      const rest = trimmed.slice(5)
-      const colonIdx = rest.indexOf(':')
-      if (colonIdx > 0) {
-        const name = rest.slice(0, colonIdx).trim()
-        const statusAndDetail = rest.slice(colonIdx + 1).trim()
-        const spaceIdx = statusAndDetail.indexOf(' ')
-        if (spaceIdx > 0) {
-          const status = statusAndDetail.slice(0, spaceIdx).trim() as StepStatus
-          const detail = statusAndDetail.slice(spaceIdx + 1).trim()
-          steps.push({ name, status, detail })
-        } else {
-          const status = statusAndDetail as StepStatus
-          steps.push({ name, status, detail: '' })
-        }
-      }
-    } else if (trimmed === 'SEND_COMPLETE') {
+    if (trimmed === 'SEND_COMPLETE') {
       hasFinalOK = true
+      continue
     }
+
+    if (!trimmed.startsWith('STEP:')) continue
+
+    const parts = trimmed.slice(5).split(':')
+    const name = parts.shift()?.trim() || 'Unknown'
+    const status = (parts.shift()?.trim() || 'ERROR') as StepStatus
+    const detail = parts.join(':').trim()
+    steps.push({ name, status, detail })
   }
 
   return { steps, raw, hasFinalOK }
 }
 
+function quoteArg(value: string): string {
+  return `"${value.replace(/"/g, '\\"')}"`
+}
+
 export class WeChatSender {
-  private enabled: boolean = false
-  private maxRetries: number = 2
-  private retryDelay: number = 1500
+  private enabled = false
+  private maxRetries = 2
+  private retryDelay = 1500
+  private options: Required<WeChatSenderOptions> = {
+    restoreClipboard: true,
+    sendHotkey: 'enter'
+  }
 
   setEnabled(enabled: boolean): void {
     this.enabled = enabled
@@ -66,45 +78,230 @@ export class WeChatSender {
     return this.enabled
   }
 
-  private async writeTempScript(contactName: string, message: string): Promise<string> {
-    const tmpDir = join(tmpdir(), 'weflow-send')
+  setOptions(options: WeChatSenderOptions): void {
+    this.options = {
+      ...this.options,
+      ...options,
+      sendHotkey: options.sendHotkey === 'ctrl-enter' ? 'ctrl-enter' : 'enter',
+      restoreClipboard: options.restoreClipboard !== false
+    }
+  }
+
+  async checkAvailability(): Promise<SendResult> {
+    if (!this.enabled) {
+      return { success: false, error: 'Message sending is not enabled' }
+    }
+
+    if (process.platform !== 'win32') {
+      return { success: false, error: 'Message sending currently supports Windows only' }
+    }
+
+    const script = String.raw`
+$names = @('WeChat', 'Weixin', 'WeChatAppEx', 'WeixinAppEx')
+foreach ($name in $names) {
+  $proc = Get-Process -Name $name -ErrorAction SilentlyContinue |
+    Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
+    Select-Object -First 1
+  if ($proc) {
+    Write-Output "OK:$($proc.ProcessName):$($proc.Id)"
+    exit 0
+  }
+}
+Write-Output 'ERROR:WeChat process with a visible main window was not found'
+exit 1
+`
+    const encoded = Buffer.from(script, 'utf16le').toString('base64')
+
+    try {
+      const { stdout } = await execAsync(`powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encoded}`, {
+        timeout: 7000,
+        windowsHide: true,
+        maxBuffer: 128 * 1024
+      })
+      const output = (stdout || '').trim()
+      if (output.startsWith('OK:')) {
+        return { success: true }
+      }
+      return { success: false, error: output || 'WeChat process with a visible main window was not found' }
+    } catch (error: any) {
+      const output = String(error?.stdout || '').trim()
+      return {
+        success: false,
+        error: output.replace(/^ERROR:/, '') || error?.message || 'WeChat availability check failed'
+      }
+    }
+  }
+
+  async sendTextMessage(
+    contactId: string,
+    contactName: string,
+    message: string,
+    isGroup = false
+  ): Promise<SendResult> {
+    if (!this.enabled) {
+      return { success: false, error: 'Message sending is not enabled' }
+    }
+
+    if (process.platform !== 'win32') {
+      return { success: false, error: 'Message sending currently supports Windows only' }
+    }
+
+    const targetName = (contactName || contactId || '').trim()
+    if (!targetName) {
+      return { success: false, error: 'Contact name is empty, cannot open chat' }
+    }
+
+    const finalMessage = (message || '').trim()
+    if (!finalMessage) {
+      return { success: false, error: 'Message content is empty, cannot send' }
+    }
+
+    // Keep group replies as plain text. The sender name is not available here, and
+    // prefixing "@group name" makes many group sends fail or address the wrong target.
+    void isGroup
+
+    let lastError = ''
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      let bundle: TempSendBundle | null = null
+
+      try {
+        bundle = await this.writeTempSendBundle(targetName, finalMessage)
+
+        const command = [
+          'powershell.exe',
+          '-NoProfile',
+          '-Sta',
+          '-NonInteractive',
+          '-ExecutionPolicy',
+          'Bypass',
+          '-File',
+          quoteArg(bundle.scriptPath),
+          '-ContactFile',
+          quoteArg(bundle.contactPath),
+          '-MessageFile',
+          quoteArg(bundle.messagePath),
+          '-SendHotkey',
+          quoteArg(this.options.sendHotkey),
+          '-RestoreClipboard',
+          quoteArg(this.options.restoreClipboard ? 'true' : 'false')
+        ].join(' ')
+
+        const { stdout, stderr } = await execAsync(command, {
+          timeout: 45000,
+          windowsHide: true,
+          maxBuffer: 1024 * 1024
+        })
+
+        const parsed = parseScriptOutput(stdout || '')
+        for (const step of parsed.steps) {
+          console.log(`[WeChatSender] ${step.name}: ${step.status}${step.detail ? ` - ${step.detail}` : ''}`)
+        }
+
+        const errorSteps = parsed.steps.filter(step => step.status === 'ERROR')
+        if (parsed.hasFinalOK && errorSteps.length === 0) {
+          return { success: true }
+        }
+
+        lastError =
+          errorSteps.map(step => `${step.name}: ${step.detail}`).join('; ') ||
+          (stderr || '').trim() ||
+          parsed.raw ||
+          'PowerShell sender did not report completion'
+
+        console.warn(`[WeChatSender] send attempt ${attempt}/${this.maxRetries} failed: ${lastError}`)
+      } catch (error: any) {
+        lastError = error?.killed
+          ? 'Sending timed out after 45s; WeChat may not be responding'
+          : error?.message || 'Failed to send message'
+        console.warn(`[WeChatSender] send attempt ${attempt}/${this.maxRetries} threw: ${lastError}`)
+      } finally {
+        if (bundle) {
+          await Promise.all([
+            unlink(bundle.scriptPath).catch(() => {}),
+            unlink(bundle.contactPath).catch(() => {}),
+            unlink(bundle.messagePath).catch(() => {})
+          ])
+        }
+      }
+
+      if (attempt < this.maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, this.retryDelay))
+      }
+    }
+
+    return { success: false, error: lastError }
+  }
+
+  private async writeTempSendBundle(contactName: string, message: string): Promise<TempSendBundle> {
+    const tmpDir = join(tmpdir(), 'weflow-ai-reply-send')
     if (!existsSync(tmpDir)) {
       await mkdir(tmpDir, { recursive: true })
     }
-    const scriptPath = join(tmpDir, `send_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.ps1`)
 
-    const escapedName = contactName.replace(/'/g, "''")
-    const safeMessage = message.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-    const escapedMessage = safeMessage.replace(/'/g, "''")
-    const hasNewlines = safeMessage.includes('\n')
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+    const scriptPath = join(tmpDir, `send_${suffix}.ps1`)
+    const contactPath = join(tmpDir, `contact_${suffix}.txt`)
+    const messagePath = join(tmpDir, `message_${suffix}.txt`)
 
-    const script = `Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes
-Add-Type @"
-using System;
-using System.Runtime.InteropServices;
-public class Win32 {
-  [DllImport("user32.dll")]
-  public static extern bool SetForegroundWindow(IntPtr hWnd);
-  [DllImport("user32.dll")]
-  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-  [DllImport("user32.dll")]
-  public static extern bool IsIconic(IntPtr hWnd);
-  [DllImport("user32.dll")]
-  public static extern IntPtr GetForegroundWindow();
-  [DllImport("user32.dll", CharSet = CharSet.Auto)]
-  public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, string lParam);
-  [DllImport("user32.dll")]
-  public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-  public const uint WM_GETTEXT = 0x000D;
-  public const uint WM_SETTEXT = 0x000C;
-  public const int SW_RESTORE = 9;
-  public const int SW_SHOW = 5;
+    await Promise.all([
+      writeFile(scriptPath, `\uFEFF${SEND_SCRIPT}`, 'utf-8'),
+      writeFile(contactPath, contactName, 'utf-8'),
+      writeFile(messagePath, message, 'utf-8')
+    ])
+
+    return { scriptPath, contactPath, messagePath }
+  }
 }
-"@
+
+const SEND_SCRIPT = String.raw`
+param(
+  [Parameter(Mandatory=$true)][string]$ContactFile,
+  [Parameter(Mandatory=$true)][string]$MessageFile,
+  [ValidateSet('enter','ctrl-enter')][string]$SendHotkey = 'enter',
+  [ValidateSet('true','false')][string]$RestoreClipboard = 'true'
+)
 
 $ErrorActionPreference = 'Stop'
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+try {
+  Add-Type -AssemblyName UIAutomationClient
+  Add-Type -AssemblyName UIAutomationTypes
+} catch {}
+
+Add-Type @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+
+public class NativeMethods {
+  public const int SW_RESTORE = 9;
+  public const int SW_SHOW = 5;
+  public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
+  public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+
+  public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+  [DllImport("user32.dll")]
+  public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern IntPtr GetForegroundWindow();
+
+  [DllImport("user32.dll")]
+  public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+  [DllImport("user32.dll")]
+  public static extern bool IsIconic(IntPtr hWnd);
+
+  [DllImport("user32.dll")]
+  public static extern bool SetCursorPos(int X, int Y);
+
+  [DllImport("user32.dll")]
+  public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
+}
+"@
 
 function Write-Step {
   param([string]$Name, [string]$Status, [string]$Detail = '')
@@ -115,315 +312,293 @@ function Write-Step {
   }
 }
 
-function Activate-WeChat {
-  $wechat = Get-Process -Name 'WeChat' -ErrorAction SilentlyContinue
-  if (-not $wechat) {
-    Write-Step 'ActivateWeChat' 'ERROR' 'WeChat process not found'
-    return $false
-  }
-
-  $mainWindow = $wechat.MainWindowHandle
-  if ($mainWindow -eq [IntPtr]::Zero) {
-    Write-Step 'ActivateWeChat' 'ERROR' 'Window handle is zero (WeChat may be minimized to tray)'
-    return $false
-  }
-
-  [Win32]::ShowWindow($mainWindow, [Win32]::SW_RESTORE)
-  Start-Sleep -Milliseconds 300
-
-  $currentFg = [Win32]::GetForegroundWindow()
-  if ($currentFg -ne $mainWindow) {
-    [Win32]::SetForegroundWindow($mainWindow) | Out-Null
-    Start-Sleep -Milliseconds 500
-  }
-
-  $currentFg = [Win32]::GetForegroundWindow()
-  if ($currentFg -ne $mainWindow) {
-    Write-Step 'ActivateWeChat' 'WARNING' 'Window may not be in foreground, but continuing anyway'
-  } else {
-    Write-Step 'ActivateWeChat' 'OK' 'WeChat is now in foreground'
-  }
-
-  return $true
+function Read-Utf8File {
+  param([string]$Path)
+  return [System.IO.File]::ReadAllText($Path, [System.Text.Encoding]::UTF8)
 }
 
-function Find-InputEdit {
+function Set-ClipboardText {
+  param([string]$Text)
+  [System.Windows.Forms.Clipboard]::Clear() | Out-Null
+  [System.Windows.Forms.Clipboard]::SetText($Text, [System.Windows.Forms.TextDataFormat]::UnicodeText) | Out-Null
+}
+
+function Invoke-SendHotkey {
+  param([string]$Hotkey)
+  if ($Hotkey -eq 'ctrl-enter') {
+    [System.Windows.Forms.SendKeys]::SendWait('^{ENTER}')
+  } else {
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+  }
+}
+
+function Get-WeChatProcess {
+  $names = @('WeChat', 'Weixin', 'WeChatAppEx', 'WeixinAppEx')
+
+  foreach ($name in $names) {
+    $proc = Get-Process -Name $name -ErrorAction SilentlyContinue |
+      Where-Object { $_.MainWindowHandle -ne [IntPtr]::Zero } |
+      Sort-Object StartTime -Descending |
+      Select-Object -First 1
+    if ($proc) { return $proc }
+  }
+
+  return Get-Process -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.MainWindowHandle -ne [IntPtr]::Zero -and
+      ($_.MainWindowTitle -match 'WeChat|Weixin|微信')
+    } |
+    Select-Object -First 1
+}
+
+function Activate-WeChat {
+  $wechat = Get-WeChatProcess
+  if (-not $wechat) {
+    Write-Step 'ActivateWeChat' 'ERROR' 'WeChat process with a visible main window was not found'
+    return [IntPtr]::Zero
+  }
+
+  $handle = $wechat.MainWindowHandle
+  [NativeMethods]::ShowWindow($handle, [NativeMethods]::SW_RESTORE) | Out-Null
+  Start-Sleep -Milliseconds 200
+
+  try {
+    $shell = New-Object -ComObject WScript.Shell
+    $shell.AppActivate($wechat.Id) | Out-Null
+  } catch {}
+
+  [NativeMethods]::SetForegroundWindow($handle) | Out-Null
+  Start-Sleep -Milliseconds 400
+
+  $foreground = [NativeMethods]::GetForegroundWindow()
+  if ($foreground -ne $handle) {
+    Write-Step 'ActivateWeChat' 'WARNING' 'Window may not be foreground, continuing'
+  } else {
+    Write-Step 'ActivateWeChat' 'OK' 'WeChat is foreground'
+  }
+
+  return $handle
+}
+
+function Click-Point {
+  param([int]$X, [int]$Y)
+  [NativeMethods]::SetCursorPos($X, $Y) | Out-Null
+  Start-Sleep -Milliseconds 80
+  [NativeMethods]::mouse_event([NativeMethods]::MOUSEEVENTF_LEFTDOWN, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 60
+  [NativeMethods]::mouse_event([NativeMethods]::MOUSEEVENTF_LEFTUP, 0, 0, 0, [UIntPtr]::Zero)
+  Start-Sleep -Milliseconds 180
+}
+
+function Get-BestInputElement {
   param([IntPtr]$WindowHandle)
 
   try {
-    Add-Type @"
-using System;
-using System.Windows.Automation;
-using System.Runtime.InteropServices;
-public class UIAHelper {
-  [DllImport("user32.dll", SetLastError = true)]
-  public static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($WindowHandle)
+    if (-not $root) { return $null }
 
-  public static IntPtr GetWindowHandle(long handleAsLong) {
-    return new IntPtr(handleAsLong);
-  }
-}
-"@ -ErrorAction SilentlyContinue
+    $editCondition = New-Object System.Windows.Automation.PropertyCondition(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      [System.Windows.Automation.ControlType]::Edit
+    )
+    $documentCondition = New-Object System.Windows.Automation.PropertyCondition(
+      [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+      [System.Windows.Automation.ControlType]::Document
+    )
+    $condition = New-Object System.Windows.Automation.OrCondition($editCondition, $documentCondition)
+    $elements = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $condition)
 
-    $editHandle = [UIAHelper]::FindWindowEx($WindowHandle, [IntPtr]::Zero, 'Edit', '')
-    if ($editHandle -eq [IntPtr]::Zero) {
-      $editHandle = [UIAHelper]::FindWindowEx($WindowHandle, [IntPtr]::Zero, '', 'chat')
-    }
-    if ($editHandle -eq [IntPtr]::Zero) {
-      $editHandle = [UIAHelper]::FindWindowEx($WindowHandle, [IntPtr]::Zero, 'RICHEDIT_WIDGET', '')
-    }
-
-    if ($editHandle -ne [IntPtr]::Zero) {
-      Write-Step 'FindInputEdit' 'OK' "Found edit control with handle $editHandle"
-      return $editHandle
+    $candidates = @()
+    foreach ($element in $elements) {
+      try {
+        $rect = $element.Current.BoundingRectangle
+        if ($element.Current.IsOffscreen) { continue }
+        if (-not $element.Current.IsEnabled) { continue }
+        if ($rect.Width -lt 80 -or $rect.Height -lt 20) { continue }
+        $candidates += [PSCustomObject]@{ Element = $element; Rect = $rect; Score = ($rect.Y * 10 + $rect.Width) }
+      } catch {}
     }
 
-    Write-Step 'FindInputEdit' 'ERROR' 'Could not find input edit control'
-    return [IntPtr]::Zero
+    if ($candidates.Count -eq 0) { return $null }
+    return ($candidates | Sort-Object Score -Descending | Select-Object -First 1).Element
   } catch {
-    Write-Step 'FindInputEdit' 'ERROR' $_.Exception.Message
-    return [IntPtr]::Zero
+    return $null
   }
 }
 
-function Get-EditText {
-  param([IntPtr]$editHandle)
+function Get-ElementText {
+  param($Element)
 
-  if ($editHandle -eq [IntPtr]::Zero) {
-    return ''
+  if (-not $Element) { return '' }
+
+  try {
+    $valuePattern = $null
+    if ($Element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$valuePattern)) {
+      return $valuePattern.Current.Value
+    }
+  } catch {}
+
+  try {
+    $textPattern = $null
+    if ($Element.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$textPattern)) {
+      return $textPattern.DocumentRange.GetText(-1)
+    }
+  } catch {}
+
+  return ''
+}
+
+function Focus-Input {
+  param([IntPtr]$WindowHandle)
+
+  $element = Get-BestInputElement -WindowHandle $WindowHandle
+  if ($element) {
+    try { $element.SetFocus() | Out-Null } catch {}
+    try {
+      $rect = $element.Current.BoundingRectangle
+      $x = [int]($rect.X + [Math]::Max(20, [Math]::Min($rect.Width / 2, 160)))
+      $y = [int]($rect.Y + $rect.Height / 2)
+      Click-Point -X $x -Y $y
+      Write-Step 'FocusInput' 'OK' "Focused input via UIAutomation"
+      return $element
+    } catch {}
   }
 
   try {
-    $bufSize = 8192
-    $buf = New-Object System.Text.StringBuilder($bufSize)
-    $len = [Win32]::SendMessage($editHandle, [Win32]::WM_GETTEXT, [IntPtr]($bufSize), $buf) | Select-Object -First 1
-    if ($len -is [int]) {
-      return $buf.ToString()
-    } else {
-      return $len.ToString()
-    }
+    $root = [System.Windows.Automation.AutomationElement]::FromHandle($WindowHandle)
+    $rect = $root.Current.BoundingRectangle
+    $x = [int]($rect.X + $rect.Width * 0.62)
+    $y = [int]($rect.Y + $rect.Height - 95)
+    Click-Point -X $x -Y $y
+    Write-Step 'FocusInput' 'WARNING' 'Clicked estimated input area'
   } catch {
-    return ''
+    Write-Step 'FocusInput' 'ERROR' $_.Exception.Message
+    return $null
   }
+
+  return Get-BestInputElement -WindowHandle $WindowHandle
 }
 
 function Search-And-Navigate {
   param([string]$ContactName)
 
-  Write-Step 'SearchContact' 'OK' 'Starting search'
-  [System.Windows.Forms.SendKeys]::SendWait('^f')
-  Start-Sleep -Milliseconds 400
-
-  [System.Windows.Forms.SendKeys]::SendWait('^a')
-  Start-Sleep -Milliseconds 100
-
   try {
-    [System.Windows.Forms.Clipboard]::SetText($ContactName) | Out-Null
-    Start-Sleep -Milliseconds 150
-    [System.Windows.Forms.SendKeys]::SendWait('^v')
-    Start-Sleep -Milliseconds 800
-
-    $clipboardAfter = ''
-    try { $clipboardAfter = [System.Windows.Forms.Clipboard]::GetText() } catch {}
-
-    [System.Windows.Forms.Clipboard]::Clear() | Out-Null
+    Set-ClipboardText -Text $ContactName
+    [System.Windows.Forms.SendKeys]::SendWait('^f')
+    Start-Sleep -Milliseconds 250
+    [System.Windows.Forms.SendKeys]::SendWait('^a')
     Start-Sleep -Milliseconds 100
+    [System.Windows.Forms.SendKeys]::SendWait('^v')
+    Start-Sleep -Milliseconds 900
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Start-Sleep -Milliseconds 1000
+    Write-Step 'SearchContact' 'OK' "Opened chat for '$ContactName'"
+    return $true
   } catch {
-    Write-Step 'SearchContact' 'ERROR' "Failed to paste contact name: $($_.Exception.Message)"
+    Write-Step 'SearchContact' 'ERROR' $_.Exception.Message
     return $false
   }
-
-  [System.Windows.Forms.SendKeys]::SendWait('{Enter}')
-  Start-Sleep -Milliseconds 600
-
-  [System.Windows.Forms.SendKeys]::SendWait('{Esc}')
-  Start-Sleep -Milliseconds 300
-
-  Write-Step 'SearchContact' 'OK' "Contact '$ContactName' searched and navigated"
-  return $true
 }
 
 function Send-Text {
-  param(
-    [string]$Text,
-    [IntPtr]$WindowHandle
-  )
+  param([string]$Text, [IntPtr]$WindowHandle, [string]$Hotkey)
 
-  $editHandle = Find-InputEdit -WindowHandle $WindowHandle
-
-  $originalClipboard = ''
-  try { $originalClipboard = [System.Windows.Forms.Clipboard]::GetText() } catch {}
+  $inputElement = Focus-Input -WindowHandle $WindowHandle
+  if (-not $inputElement) {
+    Write-Step 'FindInput' 'ERROR' 'Could not focus chat input'
+    return $false
+  }
 
   try {
-    [System.Windows.Forms.Clipboard]::SetText($Text) | Out-Null
-    Start-Sleep -Milliseconds 150
-
+    Set-ClipboardText -Text $Text
     [System.Windows.Forms.SendKeys]::SendWait('^v')
-    Start-Sleep -Milliseconds 300
-
-    $textAfterPaste = Get-EditText -editHandle $editHandle
-    if (-not $textAfterPaste -or $textAfterPaste.Length -eq 0) {
-      Write-Step 'PasteText' 'ERROR' 'Pasted text not found in input field'
-      return $false
-    }
-
-    Write-Step 'PasteText' 'OK' "Text pasted, length=$($textAfterPaste.Length)"
+    Start-Sleep -Milliseconds 350
+    Write-Step 'PasteText' 'OK' "Pasted text, length=$($Text.Length)"
   } catch {
-    Write-Step 'PasteText' 'ERROR' "Failed to paste text: $($_.Exception.Message)"
+    Write-Step 'PasteText' 'ERROR' $_.Exception.Message
     return $false
   }
 
-  [System.Windows.Forms.SendKeys]::SendWait('{Enter}')
-  Start-Sleep -Milliseconds 100
+  $beforeSend = Get-ElementText -Element $inputElement
 
   try {
-    if ($originalClipboard) {
-      [System.Windows.Forms.Clipboard]::SetText($originalClipboard) | Out-Null
-    } else {
-      [System.Windows.Forms.Clipboard]::Clear() | Out-Null
-    }
-  } catch {}
-
-  Start-Sleep -Milliseconds 800
-
-  $textAfterSend = Get-EditText -editHandle $editHandle
-  if ($textAfterSend -and $textAfterSend.Length -gt 0) {
-    Write-Step 'VerifySend' 'ERROR' "Input field still has text after send, message may not have been sent. Text: '$textAfterSend'"
+    Invoke-SendHotkey -Hotkey $Hotkey
+    Start-Sleep -Milliseconds 900
+  } catch {
+    Write-Step 'SendEnter' 'ERROR' $_.Exception.Message
     return $false
   }
 
-  Write-Step 'VerifySend' 'OK' 'Input field is empty, message appears to be sent'
+  $afterEnter = Get-ElementText -Element $inputElement
+  if ($afterEnter -and $beforeSend -and $afterEnter.Trim().Length -gt 0) {
+    try {
+      $fallbackHotkey = if ($Hotkey -eq 'ctrl-enter') { 'enter' } else { 'ctrl-enter' }
+      Invoke-SendHotkey -Hotkey $fallbackHotkey
+      Start-Sleep -Milliseconds 800
+      Write-Step 'SendFallback' 'WARNING' "Input still had text after $Hotkey, tried $fallbackHotkey"
+    } catch {}
+  }
+
+  $afterFallback = Get-ElementText -Element $inputElement
+  if ($beforeSend -and $afterFallback -and $afterFallback.Trim().Length -gt 0) {
+    Write-Step 'VerifySent' 'ERROR' 'Input still contains text after send hotkeys'
+    return $false
+  }
+
+  if (-not $beforeSend) {
+    Write-Step 'VerifySent' 'WARNING' 'Input text could not be read; send keys were submitted'
+  } else {
+    Write-Step 'VerifySent' 'OK' 'Input was cleared after sending'
+  }
+
+  Write-Step 'SendMessage' 'OK' 'Send keys submitted'
   return $true
 }
 
-$activated = Activate-WeChat
-if (-not $activated) {
-  exit 1
-}
+$originalClipboard = ''
+$hadClipboard = $false
+$shouldRestoreClipboard = $RestoreClipboard -ne 'false'
 
-$wechat = Get-Process -Name 'WeChat' -ErrorAction SilentlyContinue
-$mainWindow = $wechat.MainWindowHandle
+try {
+  $ContactName = (Read-Utf8File -Path $ContactFile).Trim()
+  $Text = Read-Utf8File -Path $MessageFile
 
-Start-Sleep -Milliseconds 300
-
-$searchResult = Search-And-Navigate -ContactName '${escapedName}'
-if (-not $searchResult) {
-  exit 1
-}
-
-Start-Sleep -Milliseconds 300
-
-$sendResult = Send-Text -Text '${escapedMessage}' -WindowHandle $mainWindow
-if (-not $sendResult) {
-  exit 1
-}
-
-Start-Sleep -Milliseconds 300
-Write-Output 'SEND_COMPLETE'
-`
-
-    await writeFile(scriptPath, '\uFEFF' + script, 'utf-8')
-    return scriptPath
+  if (-not $ContactName) {
+    Write-Step 'Validate' 'ERROR' 'Contact name is empty'
+    exit 1
+  }
+  if (-not $Text -or $Text.Trim().Length -eq 0) {
+    Write-Step 'Validate' 'ERROR' 'Message text is empty'
+    exit 1
   }
 
-  async sendTextMessage(contactId: string, contactName: string, message: string, isGroup = false): Promise<SendResult> {
-    if (!this.enabled) {
-      return { success: false, error: '消息发送功能未启用' }
-    }
+  if ($shouldRestoreClipboard) {
+    try {
+      $originalClipboard = [System.Windows.Forms.Clipboard]::GetText()
+      $hadClipboard = $true
+    } catch {}
+  }
 
-    if (process.platform !== 'win32') {
-      return { success: false, error: '消息发送功能仅支持 Windows 系统' }
-    }
+  $mainWindow = Activate-WeChat
+  if ($mainWindow -eq [IntPtr]::Zero) { exit 1 }
 
-    if (!contactName) {
-      return { success: false, error: '联系人名称为空，无法发送' }
-    }
+  if (-not (Search-And-Navigate -ContactName $ContactName)) { exit 1 }
 
-    if (!message || !message.trim()) {
-      return { success: false, error: '消息内容为空，无法发送' }
-    }
+  $mainWindow = Activate-WeChat
+  if ($mainWindow -eq [IntPtr]::Zero) { exit 1 }
 
-    let lastError = ''
-    let finalMessage = message
+  if (-not (Send-Text -Text $Text -WindowHandle $mainWindow -Hotkey $SendHotkey)) { exit 1 }
 
-    if (isGroup && contactName) {
-      finalMessage = `@${contactName} ${message}`
-    }
-
-    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
-      let scriptPath = ''
-      try {
-        scriptPath = await this.writeTempScript(contactName, finalMessage)
-        if (!scriptPath) {
-          lastError = '无法创建临时脚本文件'
-          if (attempt < this.maxRetries) {
-            await new Promise(resolve => setTimeout(resolve, this.retryDelay))
-            continue
-          }
-          return { success: false, error: lastError }
-        }
-
-        const { stdout, stderr } = await execAsync(
-          `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${scriptPath}"`,
-          { timeout: 30000, windowsHide: true }
-        )
-
-        const parsed = parseScriptOutput(stdout || '')
-        console.log(`[WeChatSender] === PowerShell 脚本执行完成 ===`)
-        console.log(`[WeChatSender] stdout (原始): ${JSON.stringify(parsed.raw)}`)
-        console.log(`[WeChatSender] stderr (原始): ${JSON.stringify(stderr || '')}`)
-        console.log(`[WeChatSender] 解析到的步骤数: ${parsed.steps.length}`)
-        for (const step of parsed.steps) {
-          console.log(`[WeChatSender]   步骤: ${step.name} = ${step.status}, 详情: ${step.detail}`)
-        }
-        console.log(`[WeChatSender] hasFinalOK: ${parsed.hasFinalOK}`)
-        console.log(`[WeChatSender] 尝试 ${attempt}/${this.maxRetries} 输出解析完成`)
-
-        const errorSteps = parsed.steps.filter(s => s.status === 'ERROR')
-        if (errorSteps.length > 0) {
-          lastError = errorSteps.map(s => `${s.name}: ${s.detail}`).join('; ')
-          console.warn(`[WeChatSender] 脚本步骤出错: ${lastError}`)
-          if (attempt < this.maxRetries) {
-            await new Promise(resolve => setTimeout(resolve, this.retryDelay))
-            continue
-          }
-          return { success: false, error: lastError }
-        }
-
-        if (parsed.hasFinalOK) {
-          return { success: true }
-        }
-
-        if (parsed.steps.length > 0 && errorSteps.length === 0) {
-          return { success: true }
-        }
-
-        const stderrStr = (stderr || '').trim()
-        lastError = stderrStr || parsed.raw || '脚本未输出有效结果'
-        if (attempt < this.maxRetries) {
-          console.log(`[WeChatSender] 发送异常 (尝试 ${attempt}/${this.maxRetries}): ${lastError}`)
-          await new Promise(resolve => setTimeout(resolve, this.retryDelay))
-          continue
-        }
-        return { success: false, error: lastError }
-      } catch (e: any) {
-        lastError = e.message || 'Failed to send message'
-        if (lastError.includes('timed out')) {
-          lastError = '发送超时(30s)，微信可能未响应'
-        }
-        if (attempt < this.maxRetries) {
-          console.log(`[WeChatSender] 发送异常 (尝试 ${attempt}/${this.maxRetries}): ${lastError}`)
-          await new Promise(resolve => setTimeout(resolve, this.retryDelay))
-          continue
-        }
-        return { success: false, error: lastError }
-      } finally {
-        if (scriptPath) {
-          try { await unlink(scriptPath) } catch {}
-        }
+  Write-Output 'SEND_COMPLETE'
+} finally {
+  if ($shouldRestoreClipboard) {
+    try {
+      if ($hadClipboard) {
+        Set-ClipboardText -Text $originalClipboard
+      } else {
+        [System.Windows.Forms.Clipboard]::Clear() | Out-Null
       }
-    }
-
-    return { success: false, error: lastError }
+    } catch {}
   }
 }
+`

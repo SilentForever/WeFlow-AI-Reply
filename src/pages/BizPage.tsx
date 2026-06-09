@@ -205,8 +205,8 @@ export const BizMessageArea: React.FC<{
 
         setMessages(prev => {
           const combined = currentOffset === 0 ? res : [...res, ...prev];
-          const uniqueMessages = Array.from(new Map(combined.map(item => [item.local_id || item.create_time, item])).values());
-          return uniqueMessages.sort((a, b) => a.create_time - b.create_time);
+          const uniqueMessages = Array.from(new Map<string | number, any>(combined.map((item: any) => [item.local_id || item.create_time, item])).values());
+          return uniqueMessages.sort((a: any, b: any) => a.create_time - b.create_time);
         });
         setOffset(currentOffset + limit);
       }

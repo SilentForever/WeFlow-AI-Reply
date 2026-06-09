@@ -1,231 +1,130 @@
-# WeFlow
+# WeFlow-AI-Reply
 
-WeFlow 是一个**完全本地**的微信**实时**聊天记录查看、分析与导出工具。它可以实时获取你的微信聊天记录并将其导出，还可以根据你的聊天记录为你生成独一无二的分析报告。
+WeFlow-AI-Reply 是基于 [WeFlow](https://github.com/hicccc77/WeFlow) 的二次开发版本。它保留原 WeFlow 的本地微信聊天记录读取、分析、导出、朋友圈解密、HTTP API 等能力，并新增 AI 自动回复与聊天记录蒸馏为 skill 的实验功能。
 
----
-
-**WeFlow** is a fully local tool for viewing, analyzing, and exporting WeChat chat history in real time. It generates unique analysis reports based on your chat history.
+> 本项目仍然坚持本地优先：聊天记录读取、分析和导出逻辑沿用 WeFlow 的本地链路。AI 自动回复会在用户启用后尝试真实发送微信消息，请先使用白名单、测试联系人和手动/低风险发送器完成验证。
 
 <p align="center">
   <img src="app.jpg" alt="WeFlow 应用预览" width="90%">
 </p>
 
 <p align="center">
-  <a href="https://github.com/hicccc77/WeFlow/stargazers"><img src="https://img.shields.io/github/stars/hicccc77/WeFlow?style=flat&label=Stars&labelColor=1F2937&color=2563EB" alt="Stargazers"></a>
-  <a href="https://github.com/hicccc77/WeFlow/network/members"><img src="https://img.shields.io/github/forks/hicccc77/WeFlow?style=flat&label=Forks&labelColor=1F2937&color=7C3AED" alt="Forks"></a>
-  <a href="https://github.com/hicccc77/WeFlow/issues"><img src="https://img.shields.io/github/issues/hicccc77/WeFlow?style=flat&label=Issues&labelColor=1F2937&color=D97706" alt="Issues"></a>
-  <a href="https://github.com/hicccc77/WeFlow/releases"><img src="https://img.shields.io/github/downloads/hicccc77/WeFlow/total?style=flat&label=Downloads&labelColor=1F2937&color=059669" alt="Downloads"></a>
-  <br><br>
-  <a href="https://t.me/weflow_cc"><img src="https://img.shields.io/badge/Telegram-频道-1D9BF0?style=flat&logo=telegram&logoColor=white&labelColor=1F2937&color=1D9BF0" alt="Telegram Channel" style="height: 22px; vertical-align: middle;"></a>
-  <a href="https://www.star-history.com/hicccc77/weflow"><img src="https://api.star-history.com/badge?repo=hicccc77/WeFlow&theme=dark" alt="Star History Rank" style="height: 32px; vertical-align: middle;"></a>
+  <a href="https://github.com/SilentForever/WeFlow-AI-Reply/actions/workflows/windows-portable.yml"><img src="https://img.shields.io/github/actions/workflow/status/SilentForever/WeFlow-AI-Reply/windows-portable.yml?branch=main&label=Windows%20Portable&labelColor=1F2937&color=2563EB" alt="Windows Portable Build"></a>
+  <a href="https://github.com/SilentForever/WeFlow-AI-Reply/releases"><img src="https://img.shields.io/github/downloads/SilentForever/WeFlow-AI-Reply/total?style=flat&label=Downloads&labelColor=1F2937&color=059669" alt="Downloads"></a>
+  <a href="https://github.com/SilentForever/WeFlow-AI-Reply/issues"><img src="https://img.shields.io/github/issues/SilentForever/WeFlow-AI-Reply?style=flat&label=Issues&labelColor=1F2937&color=D97706" alt="Issues"></a>
+  <a href="https://github.com/SilentForever/WeFlow-AI-Reply/stargazers"><img src="https://img.shields.io/github/stars/SilentForever/WeFlow-AI-Reply?style=flat&label=Stars&labelColor=1F2937&color=7C3AED" alt="Stars"></a>
 </p>
 
-> [!TIP]
-> 如果导出聊天记录后，想深入分析聊天内容可以试试 [ChatLab](https://chatlab.fun/)
-> 
-> If you want to analyze your exported chat content in depth, try [ChatLab](https://chatlab.fun/)
+## 快速下载
 
-> [!NOTE]
-> 仅支持微信 **4.0 及以上**版本，确保你的微信版本符合要求
-> 
-> Only supports WeChat **version 4.0 and above**. Please ensure your WeChat version meets the requirements.
+Windows 用户推荐下载免安装版本：
+
+- 最新 Windows x64 免安装 exe：[Windows Portable Latest](https://github.com/SilentForever/WeFlow-AI-Reply/releases/tag/windows-portable-latest)
+- 也可以在 [Actions - Windows Portable EXE](https://github.com/SilentForever/WeFlow-AI-Reply/actions/workflows/windows-portable.yml) 中下载最近一次构建产物。
+
+下载 `.exe` 后双击运行即可，无需安装。当前构建产物仅面向 Windows x64，且未做代码签名，首次运行时 Windows SmartScreen 可能出现安全提示。
+
+> WeFlow 原功能要求微信 **4.0 及以上**版本，请确保本机 Windows 微信已登录。
 
 ## 主要功能
 
-- 本地实时查看聊天记录
-- 朋友圈图片、视频、**实况**的预览和解密
-- 统计分析与群聊画像
-- 年度报告与可视化概览
-- 导出聊天记录为 HTML 等格式
-- HTTP API 接口（供开发者集成）
-- 查看完整能力清单：[详细功能](#详细功能清单)
+| 模块 | 状态 | 说明 |
+| --- | --- | --- |
+| 本地聊天记录查看 | 可用 | 实时读取微信聊天记录，无需生成解密中间数据库 |
+| 图片/视频/实况解密 | 可用 | 支持聊天与朋友圈媒体预览、解密和导出 |
+| 统计分析 | 可用 | 私聊分析、群聊画像、年度报告、双人报告 |
+| 消息导出 | 可用 | 支持 JSON、HTML、TXT、Excel、CSV、PGSQL、ChatLab 等格式 |
+| HTTP API | 可用 | 提供本地 API 与消息推送，便于自动化集成 |
+| AI 自动回复 | 实验可用 | 支持触发规则、联系人规则、skill 上下文和多发送器 |
+| 聊天记录蒸馏 skill | 实验功能 | 目标是把聊天记录沉淀为可复用的回复风格/知识 skill |
 
----
+## AI 自动回复使用流程
 
-**Key Features**
+1. 启动并登录 Windows 微信，确认 WeFlow 可以正常读取聊天记录。
+2. 在 WeFlow 设置中启用 HTTP API、消息推送和访问 token。
+3. 进入 AI 自动回复页面，配置模型 API、默认 skill、触发规则和联系人规则。
+4. 选择发送器。默认建议先用 `manual` 或 `ui-automation` 对测试联系人验证。
+5. 确认回复内容、触发范围和发送日志都符合预期后，再逐步扩大白名单。
 
-- View chat history locally in real-time
-- Preview and decrypt Moments photos, videos, and **Live Photos**
-- Statistical analysis and group chat insights
-- Annual reports and visual overviews
-- Export chat history to HTML and other formats
-- HTTP API (for developer integration)
-- View complete feature list: [Detailed Features](#详细功能清单)
+如果使用 OpenAI、DeepSeek、通义千问等云端模型，触发回复所需的聊天上下文会发送到对应模型服务。请先确认 API 服务商、网络环境和数据范围符合你的隐私预期。
 
-## 支持平台与设备
+### 发送器能力
 
-| 平台 | 设备/架构 | 安装包 |
-|------|----------|--------|
-| Windows | Windows10+、x64（amd64） | `.exe` |
-| macOS | Apple Silicon（M 系列，arm64） | `.dmg` |
-| Linux | x64 设备（amd64） | `.AppImage`、`.tar.gz` |
+| 发送器 | 是否自动发送 | 是否无感 | 说明 |
+| --- | --- | --- | --- |
+| `manual` | 否 | 是 | 只生成回复并记录日志，不触碰微信，适合调试 |
+| `ui-automation` | 是 | 否 | 默认 Windows UI 自动化路线，会激活微信窗口并粘贴发送 |
+| `weclaw-http` | 是 | 是 | 调用外部 WeClaw HTTP 服务，适合后续无感发送方案 |
+| `wechatferry` | 是 | 是 | 预留实验入口，高风险 Hook 路线，默认不内置启用 |
 
----
+详细说明见：
 
-**Supported Platforms & Devices**
+- [AI 自动回复发送器配置说明](docs/ai-reply-senders.md)
+- [AI 自动回复无感发送能力开发计划书](docs/ai-reply-sender-development-plan.md)
+- [HTTP API 文档](docs/HTTP-API.md)
 
-| Platform | Device/Architecture | Package |
-|----------|---------------------|---------|
-| Windows | Windows 10+, x64 (amd64) | `.exe` |
-| macOS | Apple Silicon (M series, arm64) | `.dmg` |
-| Linux | x64 devices (amd64) | `.AppImage`, `.tar.gz` |
+## 聊天记录蒸馏 skill
 
-## 快速开始
+蒸馏 skill 的目标是从历史聊天记录中提取表达风格、常用语气、回复策略和边界约束，供 AI 自动回复生成更贴近目标对象的回复。使用前建议先用少量聊天记录测试生成质量，再决定是否扩大样本。
 
-若你只想使用成品版本，可前往 [Releases](https://github.com/hicccc77/WeFlow/releases) 下载并安装。
+注意事项：
 
-> ArchLinux 用户可以选择 `yay -S weflow` 快速安装
+- 蒸馏过程会消耗模型 token，长聊天记录可能带来明显成本。
+- 如果使用云端模型，聊天记录片段会发送到模型服务商。
+- 生成结果不保证完全准确，需要人工检查并调整 skill 后再用于自动发送。
+- 改进路线见 [蒸馏功能改进开发文档](docs/distill-improvement-plan.md)。
 
----
+## GitHub 自动构建
 
-**Quick Start**
+推送到 `main` 后会自动触发 [Windows Portable EXE](https://github.com/SilentForever/WeFlow-AI-Reply/actions/workflows/windows-portable.yml)：
 
-If you just want to use the pre-compiled application, go to [Releases](https://github.com/hicccc77/WeFlow/releases) to download and install.
+```text
+npm ci
+-> runtime binary check
+-> npm run typecheck
+-> npx vite build
+-> electron-builder --win portable --x64
+-> upload Actions artifact
+-> update windows-portable-latest prerelease
+```
 
-> ArchLinux users can quickly install with `yay -S weflow`
+该流水线只构建 Windows x64 免安装 exe，避免正式多平台 release 中 macOS、Linux 或 arm64 的非关键问题影响 Windows 交付。
 
-## 详细功能清单
-
-当前版本已支持以下能力：
-
-| 功能模块 | 说明 |
-|---------|------|
-| **聊天** | 解密聊天中的图片、视频、实况（仅支持谷歌协议拍摄的实况）；支持**修改**、删除**本地**消息；实时刷新最新消息，无需生成解密中间数据库 |
-| **消息防撤回** | 防止其他人发送的消息被撤回 |
-| **实时弹窗通知** | 新消息到达时提供桌面弹窗提醒，便于及时查看重要会话，提供黑白名单功能 |
-| **私聊分析** | 统计好友间消息数量；分析消息类型与发送比例；查看消息时段分布等 |
-| **群聊分析** | 查看群成员详细信息；分析群内发言排行、活跃时段和媒体内容 |
-| **年度报告** | 生成按年统计的年度报告，或跨年度的长期历史报告 |
-| **双人报告** | 选择指定好友，基于双方聊天记录生成专属分析报告 |
-| **消息导出** | 将微信聊天记录导出为多种格式：JSON、HTML、TXT、Excel、CSV、PGSQL、ChatLab专属格式等 |
-| **朋友圈** | 解密朋友圈图片、视频、实况；导出朋友圈内容；拦截朋友圈的删除与隐藏操作；突破时间访问限制 |
-| **联系人** | 导出微信好友、群聊、公众号信息；尝试找回曾经的好友（功能尚不完善） |
-| **HTTP API 映射** | 将本地消息能力映射为 HTTP API，便于对接外部系统、自动化脚本与二次开发 |
-
----
-
-**Detailed Feature List**
-
-The current version supports the following capabilities:
-
-| Feature Module | Description |
-|----------------|-------------|
-| **Chat** | Decrypt images, videos, and Live Photos in chats (only supports Live Photos captured with Google protocol); supports **modifying** and deleting **local** messages; real-time refresh of latest messages without generating decrypted intermediate databases |
-| **Anti-Recall** | Prevent messages sent by others from being recalled |
-| **Real-time Notifications** | Desktop popup notifications when new messages arrive, convenient for timely viewing of important conversations, with blacklist/whitelist functionality |
-| **Private Chat Analysis** | Statistics on message counts between friends; analysis of message types and sending ratios; view message time distribution, etc. |
-| **Group Chat Analysis** | View detailed group member information; analyze group activity rankings, active periods, and media content |
-| **Annual Report** | Generate annual reports by year, or long-term historical reports across years |
-| **Duo Report** | Select a specific friend and generate an exclusive analysis report based on your mutual chat history |
-| **Message Export** | Export WeChat chat history to multiple formats: JSON, HTML, TXT, Excel, CSV, PGSQL, ChatLab proprietary format, etc. |
-| **Moments** | Decrypt Moments photos, videos, and Live Photos; export Moments content; intercept deletion and hiding operations in Moments; bypass time-based access restrictions |
-| **Contacts** | Export WeChat friends, group chats, and official account information; attempt to recover deleted friends (work in progress) |
-| **HTTP API** | Map local message capabilities to HTTP API for easy integration with external systems, automation scripts, and secondary development |
-
-## HTTP API
-
-> [!WARNING]
-> 此功能目前处于早期阶段，接口可能会有变动，请等待后续更新完善。
-
-WeFlow 提供本地 HTTP API 服务，支持通过接口查询消息数据，可用于与其他工具集成或二次开发。
-
-- **启用方式**：设置 → API 服务 → 启动服务
-- **默认端口**：5031
-- **访问地址**：`http://127.0.0.1:5031`
-- **支持格式**：原始 JSON 或 [ChatLab](https://chatlab.fun/) 标准格式
-
-完整接口文档：[点击查看](docs/HTTP-API.md)
-
----
-
-> [!WARNING]
-> This feature is currently in its early stages, and the interface may change. Stay tuned for future updates.
-
-WeFlow provides a local HTTP API service that supports querying message data through interfaces, which can be used for integration with other tools or secondary development.
-
-- **Enable Method**: Settings → API Service → Start Service
-- **Default Port**: 5031
-- **Access Address**: `http://127.0.0.1:5031`
-- **Supported Formats**: Raw JSON or [ChatLab](https://chatlab.fun/) standard format
-
-Complete API documentation: [Click to view](docs/HTTP-API.md)
-
-## 面向开发者
-
-如果你想从源码构建或为项目贡献代码，请遵循以下步骤：
+## 本地开发
 
 ```bash
-# 1. 克隆项目到本地
-git clone https://github.com/hicccc77/WeFlow.git
-cd WeFlow
-
-# 2. 安装项目依赖
+git clone https://github.com/SilentForever/WeFlow-AI-Reply.git
+cd WeFlow-AI-Reply
 npm install
-
-# 3. 运行应用（开发模式）
 npm run dev
 ```
 
----
-
-**For Developers**
-
-If you want to build from source or contribute code to the project, please follow these steps:
+常用检查：
 
 ```bash
-# 1. Clone the project locally
-git clone https://github.com/hicccc77/WeFlow.git
-cd WeFlow
-
-# 2. Install project dependencies
-npm install
-
-# 3. Run the application (development mode)
-npm run dev
+npm run typecheck
+npm run build
 ```
+
+`npm run build` 会在 Windows 本地生成 `release/WeFlow-<version>-Portable.exe`。
+
+## 安全与使用边界
+
+- 请只在你有权访问的微信账号和聊天记录范围内使用本工具。
+- 自动回复会真实发送消息，请优先使用联系人白名单、手动模式和测试联系人。
+- 云端模型会接收用于生成回复或蒸馏 skill 的上下文，请谨慎选择数据范围。
+- UI 自动化发送会短暂接管微信窗口，发送期间请避免操作键盘鼠标。
+- WeClaw/WeChatFerry 等无感发送路线依赖外部项目或微信版本兼容性，默认不保证稳定。
+- 本项目不提供微信官方个人号发送 API，也不鼓励绕过平台安全机制。
 
 ## 致谢
 
-- [密语 CipherTalk](https://github.com/ILoveBingLu/miyu) 为本项目提供了基础框架
-- [WeChat-Channels-Video-File-Decryption](https://github.com/Evil0ctal/WeChat-Channels-Video-File-Decryption) 提供了视频解密相关的技术参考
+- [WeFlow](https://github.com/hicccc77/WeFlow)：本项目的上游基础。
+- [密语 CipherTalk](https://github.com/ILoveBingLu/miyu)：为 WeFlow 提供基础框架。
+- [WeChat-Channels-Video-File-Decryption](https://github.com/Evil0ctal/WeChat-Channels-Video-File-Decryption)：提供视频解密技术参考。
+- [wx-automatic-reply](https://github.com/hdjshebhdhvfb/wx-automatic-reply)：自动回复链路参考。
+- [yourself-skill](https://github.com/notdog1998/yourself-skill)：聊天记录蒸馏 skill 思路参考。
 
 ---
 
-**Acknowledgments**
-
-- [CipherTalk](https://github.com/ILoveBingLu/miyu) provided the basic framework for this project
-- [WeChat-Channels-Video-File-Decryption](https://github.com/Evil0ctal/WeChat-Channels-Video-File-Decryption) provided technical references for video decryption
-
-## 支持我们
-
-如果 WeFlow 确实帮到了你，可以考虑请我们喝杯咖啡：
-
-> TRC20 **Address:** `TZCtAw8CaeARWZBfvjidCnTcfnAtf6nvS6`
-
----
-
-**Support Us**
-
-If WeFlow has truly helped you, consider buying us a coffee:
-
-> TRC20 **Address:** `TZCtAw8CaeARWZBfvjidCnTcfnAtf6nvS6`
-
-## Star History
-
-<a href="https://www.star-history.com/#hicccc77/WeFlow&type=date&legend=top-left">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=hicccc77/WeFlow&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=hicccc77/WeFlow&type=date&legend=top-left" />
-    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=hicccc77/WeFlow&type=date&legend=top-left" />
-  </picture>
-</a>
-
-<div align="center">
-
----
-
-**请负责任地使用本工具，遵守相关法律法规**
-
-**Please use this tool responsibly and comply with relevant laws and regulations**
-
-</div>
+请负责任地使用本工具，遵守相关法律法规。

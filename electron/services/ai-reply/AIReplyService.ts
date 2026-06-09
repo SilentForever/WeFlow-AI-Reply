@@ -12,7 +12,7 @@ import { ContextManager } from './core/ContextManager'
 import { TriggerEngine } from './core/TriggerEngine'
 import { MessageDeduper } from './core/MessageDeduper'
 import { DistillService, type ChatRecordFetcher } from './distill/DistillService'
-import { WeChatSender } from './core/WeChatSender'
+import { SenderManager } from './senders/SenderManager'
 
 export interface AIReplyServiceEvents {
   statusChanged: (status: string) => void
@@ -48,7 +48,7 @@ export class AIReplyService extends EventEmitter {
   private sseStatus: 'disconnected' | 'connecting' | 'connected' | 'error' = 'disconnected'
   private sseError: string = ''
   private distillService: DistillService
-  private wechatSender: WeChatSender
+  private senderManager: SenderManager
   private autoReplyEnabled: boolean = true
   private logsFilePath: string
   private skillsDir: string
@@ -65,7 +65,7 @@ export class AIReplyService extends EventEmitter {
     this.triggerEngine = new TriggerEngine(DEFAULT_TRIGGER_RULES)
     this.messageDeduper = new MessageDeduper()
     this.distillService = new DistillService()
-    this.wechatSender = new WeChatSender()
+    this.senderManager = new SenderManager()
     this.logsFilePath = join(skillsDir, '..', 'reply-logs.json')
     this.loadLogsFromDisk()
 
@@ -218,11 +218,23 @@ export class AIReplyService extends EventEmitter {
 
   setAutoReplyEnabled(enabled: boolean): void {
     this.autoReplyEnabled = enabled
-    this.wechatSender.setEnabled(enabled)
+    this.senderManager.setAutoSendEnabled(enabled)
   }
 
   isAutoReplyEnabled(): boolean {
     return this.autoReplyEnabled
+  }
+
+  getSenderConfig(): any {
+    return this.senderManager.getConfig()
+  }
+
+  setSenderConfig(config: any): any {
+    return this.senderManager.updateConfig(config)
+  }
+
+  async getSenderHealth(senderId?: any): Promise<any> {
+    return this.senderManager.getHealth(senderId)
   }
 
   setSSEConfig(url: string, accessToken: string): void {
@@ -427,7 +439,12 @@ export class AIReplyService extends EventEmitter {
       this.emit('processingStarted', { contactId, contactName: entry.contactName, stage: 'trigger' })
       this.emit('messageFlowUpdate', { contactId, contactName: entry.contactName, stage: 'trigger', detail: '检查触发规则...' })
 
-      const triggerResult = this.triggerEngine.shouldReply(entry.messages[0])
+      const mergedContent = entry.messages.map(m => m.content).join('\n')
+      const triggerMessage: WeChatMessage = {
+        ...entry.messages[0],
+        content: mergedContent
+      }
+      const triggerResult = this.triggerEngine.shouldReply(triggerMessage)
       console.log(`[AIReplyService] 触发规则检查: shouldReply=${triggerResult.shouldReply}, reason=${triggerResult.reason || 'none'}`)
       if (!triggerResult.shouldReply) {
         this.processingContacts.delete(contactId)
@@ -465,7 +482,6 @@ export class AIReplyService extends EventEmitter {
       const startTime = Date.now()
       const contactName = entry.contactName
       const isGroup = entry.isGroup
-      const mergedContent = entry.messages.map(m => m.content).join('\n')
       console.log(`[AIReplyService] 合并后消息内容: ${mergedContent.substring(0, 100)}${mergedContent.length > 100 ? '...' : ''}`)
 
       try {
@@ -524,9 +540,9 @@ export class AIReplyService extends EventEmitter {
 
         console.log(`[AIReplyService] >>> 开始发送流程 <<<`)
         console.log(`[AIReplyService] 联系人: ${contactName} (${contactId}), 是否群聊: ${isGroup}`)
-        console.log(`[AIReplyService] autoReplyEnabled: ${this.autoReplyEnabled}, wechatSender.enabled: ${this.wechatSender.isEnabled()}`)
+        console.log(`[AIReplyService] autoReplyEnabled: ${this.autoReplyEnabled}, autoSendEnabled: ${this.senderManager.isAutoSendEnabled()}`)
 
-        if (this.autoReplyEnabled && this.wechatSender.isEnabled()) {
+        if (this.autoReplyEnabled && this.senderManager.isAutoSendEnabled()) {
           console.log(`[AIReplyService] 开始调用 WeChatSender.sendTextMessage...`)
           console.log(`[AIReplyService] 消息内容: ${plainContent.substring(0, 100)}${plainContent.length > 100 ? '...' : ''}`)
 
@@ -534,34 +550,36 @@ export class AIReplyService extends EventEmitter {
           this.emit('messageFlowUpdate', { contactId, contactName, stage: 'sending', detail: '正在发送到微信...' })
           try {
             const sendStartTime = Date.now()
-            const sendResult = await this.wechatSender.sendTextMessage(
+            const sendResult = await this.senderManager.sendText({
               contactId,
               contactName,
-              plainContent,
+              text: plainContent,
               isGroup
-            )
+            })
             const sendDuration = Date.now() - sendStartTime
 
             console.log(`[AIReplyService] WeChatSender 返回: success=${sendResult.success}, error=${sendResult.error || 'none'}`)
             console.log(`[AIReplyService] 发送耗时: ${sendDuration}ms`)
 
-            if (sendResult.success) {
+            if (sendResult.success && sendResult.delivered) {
               sent = true
               const sentKey = `${contactId}:${plainContent}`
               this.recentSentMessages.set(sentKey, Date.now())
               console.log(`[AIReplyService] >>> 发送成功 <<<`)
             } else {
-              sendError = `发送失败: ${sendResult.error}`
+              sendError = `发送失败: ${sendResult.error || sendResult.detail || '投递结果未确认'}`
+              this.dailyStats.errorCount++
               console.warn(`[AIReplyService] >>> 发送失败 <<<: ${sendResult.error}`)
               this.emit('replyError', { contactId: contactId, error: sendError })
             }
           } catch (sendErr: any) {
             sendError = `发送异常: ${sendErr.message}`
+            this.dailyStats.errorCount++
             console.error(`[AIReplyService] >>> 发送抛出异常 <<<: ${sendErr.message}`, sendErr)
             this.emit('replyError', { contactId: contactId, error: sendError })
           }
         } else {
-          console.log(`[AIReplyService] 跳过发送: autoReplyEnabled=${this.autoReplyEnabled}, wechatSender.enabled=${this.wechatSender.isEnabled()}`)
+          console.log(`[AIReplyService] 跳过发送: autoReplyEnabled=${this.autoReplyEnabled}, autoSendEnabled=${this.senderManager.isAutoSendEnabled()}`)
         }
 
         const log: ReplyLog = {
@@ -576,7 +594,7 @@ export class AIReplyService extends EventEmitter {
           modelId: this.activeModelId,
           modelName: adapter.getModelInfo().name,
           latencyMs,
-          success: sent,
+          success: !sendError,
           sent,
           errorMessage: sendError
         }
@@ -587,7 +605,7 @@ export class AIReplyService extends EventEmitter {
           this.dailyStats.repliedCount++
         }
         this.emit('replySent', log)
-        this.emit('processingCompleted', { contactId, contactName, success: sent })
+        this.emit('processingCompleted', { contactId, contactName, success: !sendError })
         this.emit('messageFlowUpdate', {
           contactId,
           contactName,
@@ -779,6 +797,10 @@ export class AIReplyService extends EventEmitter {
       const isGroup = data.sessionType === 'group' || String(data.sessionId || '').includes('@chatroom')
       const sessionId = data.sessionId || data.username || data.contactId || data.talker || ''
       const content = data.content || data.text || ''
+      const groupName = String(data.groupName || data.groupDisplayName || '').trim()
+      const contactName = isGroup
+        ? (groupName || data.contactName || data.talkerName || data.nickname || sessionId)
+        : (data.sourceName || data.nickname || data.contactName || data.talkerName || sessionId)
 
       // 自回复循环防护：检查是否是发给自己的消息
       if (!isGroup && this.selfWxid && sessionId === this.selfWxid) {
@@ -805,7 +827,8 @@ export class AIReplyService extends EventEmitter {
       const message: WeChatMessage = {
         msgId: data.rawid || data.msgId || data.id || `msg_${Date.now()}`,
         contactId: sessionId,
-        contactName: data.sourceName || data.nickname || data.contactName || data.talkerName || '',
+        contactName,
+        groupName: isGroup ? groupName || contactName : undefined,
         content,
         isGroup,
         isSend: Boolean(data.isSend ?? data.is_send ?? data.isMe ?? false),

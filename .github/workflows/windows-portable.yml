@@ -1,0 +1,122 @@
+name: Windows Portable EXE
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: windows-portable-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+  FFMPEG_BINARIES_URL: https://github.com/eugeneware/ffmpeg-static/releases/download
+  NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+  NPM_CONFIG_REPLACE_REGISTRY_HOST: always
+  WINDOWS_PORTABLE_TAG: windows-portable-latest
+
+jobs:
+  build-windows-portable:
+    name: Build Windows x64 portable
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        shell: pwsh
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify downloaded runtime binaries
+        shell: pwsh
+        run: |
+          node -e "const fs=require('fs');const p=require('ffmpeg-static');console.log('ffmpeg-static:',p);if(!p||!fs.existsSync(p)){throw new Error('ffmpeg-static binary is missing')}}"
+          node -e "const fs=require('fs');const required=['resources/wcdb/win32/x64/wcdb_api.dll','resources/wedecrypt/win32/x64/weflow-image-native-win32-x64.node'];for(const p of required){console.log(p,fs.existsSync(p));if(!fs.existsSync(p))process.exit(1)}"
+
+      - name: Type check
+        shell: pwsh
+        run: npm run typecheck
+
+      - name: Build renderer and Electron entry
+        shell: pwsh
+        run: npx vite build
+
+      - name: Package portable EXE
+        shell: pwsh
+        run: npx electron-builder --win portable --x64 --publish never '--config.portable.artifactName=${productName}-${version}-x64-Portable.${ext}'
+
+      - name: Capture portable metadata
+        id: portable
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path release -Filter '*Portable.exe' -File | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $exe) {
+            throw 'No portable EXE was generated under release/.'
+          }
+          $hash = Get-FileHash -Path $exe.FullName -Algorithm SHA256
+          "path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          "name=$($exe.Name)" >> $env:GITHUB_OUTPUT
+          "sha256=$($hash.Hash)" >> $env:GITHUB_OUTPUT
+          "PORTABLE_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
+          "PORTABLE_EXE_NAME=$($exe.Name)" >> $env:GITHUB_ENV
+          "PORTABLE_SHA256=$($hash.Hash)" >> $env:GITHUB_ENV
+          Write-Host "Portable EXE: $($exe.Name)"
+          Write-Host "SHA256: $($hash.Hash)"
+
+      - name: Upload Actions artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WeFlow-Windows-x64-Portable
+          path: release/*Portable.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish latest Windows portable prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = $env:WINDOWS_PORTABLE_TAG
+          $repo = $env:GITHUB_REPOSITORY
+          $releasePage = "https://github.com/$repo/releases/tag/$tag"
+          $notes = @"
+          ## Windows Portable Latest
+
+          This prerelease is updated automatically from the latest `main` branch build.
+
+          - File: `$env:PORTABLE_EXE_NAME`
+          - SHA256: `$env:PORTABLE_SHA256`
+          - Commit: `$env:GITHUB_SHA`
+          - Usage: download the `.exe` asset below and run it directly. No installer is required.
+
+          Notes:
+          - The executable is currently unsigned.
+          - If the direct asset is not visible yet, use the Actions artifact from the same run.
+
+          Release page: $releasePage
+          "@
+          Set-Content -Path windows-portable-release-notes.md -Value $notes -Encoding UTF8
+
+          gh release view $tag --repo $repo *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --repo $repo --target $env:GITHUB_SHA --title 'Windows Portable Latest' --notes-file windows-portable-release-notes.md --prerelease
+          } else {
+            gh release edit $tag --repo $repo --title 'Windows Portable Latest' --notes-file windows-portable-release-notes.md --prerelease
+          }
+
+          gh release upload $tag "$env:PORTABLE_EXE" --repo $repo --clobber

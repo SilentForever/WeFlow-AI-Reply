@@ -1331,8 +1331,13 @@ export interface ElectronAPI {
     resume: () => Promise<{ success: boolean }>
     stop: () => Promise<{ success: boolean }>
     getStatus: () => Promise<string>
+    getSSEStatus: () => Promise<{ status: 'disconnected' | 'connecting' | 'connected' | 'error'; error?: string }>
+    checkPrerequisites: () => Promise<{ allPassed: boolean; checks: Array<{ name: string; passed: boolean; message: string; configKey?: string }> }>
     getConfig: () => Promise<Record<string, unknown>>
     setConfig: (config: unknown) => Promise<{ success: boolean }>
+    getSenderConfig: () => Promise<import('./ai-reply').AIReplySenderConfig>
+    setSenderConfig: (config: Partial<import('./ai-reply').AIReplySenderConfig>) => Promise<{ success: boolean; config: import('./ai-reply').AIReplySenderConfig }>
+    getSenderHealth: (senderId?: import('./ai-reply').SenderId) => Promise<import('./ai-reply').SenderHealth>
     addModel: (modelConfig: unknown) => Promise<{ success: boolean; error?: string }>
     removeModel: (modelId: string) => Promise<{ success: boolean }>
     setActiveModel: (modelId: string) => Promise<{ success: boolean }>
@@ -1381,6 +1386,10 @@ export interface ElectronAPI {
     onReplyError: (callback: (error: unknown) => void) => () => void
     onMessageReceived: (callback: (message: unknown) => void) => () => void
     onDistillProgress: (callback: (progress: unknown) => void) => () => void
+    onSSEStatusChanged: (callback: (status: 'disconnected' | 'connecting' | 'connected' | 'error' | { status: 'disconnected' | 'connecting' | 'connected' | 'error'; error?: string }) => void) => () => void
+    onProcessingStarted: (callback: (info: { contactId: string; contactName: string; stage: string }) => void) => () => void
+    onProcessingCompleted: (callback: (info: { contactId: string; contactName: string; success: boolean }) => void) => () => void
+    onMessageFlowUpdate: (callback: (info: { contactId: string; contactName: string; stage: string; detail?: string }) => void) => () => void
   }
 }
 

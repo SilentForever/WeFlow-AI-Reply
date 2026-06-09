@@ -260,6 +260,7 @@ export interface WeChatMessage {
   msgId: string
   contactId: string
   contactName: string
+  groupName?: string
   content: string
   isGroup: boolean
   isSend?: boolean
@@ -457,4 +458,63 @@ export const DEFAULT_SKILL: Skill = {
   systemPromptTemplate: '',
   replyStrategy: DEFAULT_REPLY_STRATEGY,
   isBuiltin: true
+}
+export type SenderId = 'manual' | 'ui-automation' | 'weclaw-http' | 'wechatferry'
+
+export interface SendStep {
+  name: string
+  status: 'ok' | 'warning' | 'error'
+  detail?: string
+}
+
+export interface SenderHealth {
+  available: boolean
+  reason?: string
+  version?: string
+  capabilities: {
+    text: boolean
+    image: boolean
+    file: boolean
+    groupMention: boolean
+    silent: boolean
+  }
+}
+
+export interface AIReplySenderConfig {
+  activeSenderId: SenderId
+  fallbackSenderId?: SenderId
+  manualConfirmBeforeSend: boolean
+  uiAutomation: {
+    restoreClipboard?: boolean
+    sendHotkey?: 'enter' | 'ctrl-enter'
+  }
+  weclawHttp: {
+    enabled: boolean
+    baseUrl: string
+    token?: string
+    timeoutMs: number
+  }
+  wechatferry: {
+    enabled: boolean
+    endpoint?: string
+    warningAcceptedAt?: number
+  }
+}
+
+export const DEFAULT_AI_REPLY_SENDER_CONFIG: AIReplySenderConfig = {
+  activeSenderId: 'ui-automation',
+  fallbackSenderId: 'manual',
+  manualConfirmBeforeSend: false,
+  uiAutomation: {
+    restoreClipboard: true,
+    sendHotkey: 'enter'
+  },
+  weclawHttp: {
+    enabled: false,
+    baseUrl: 'http://127.0.0.1:19888',
+    timeoutMs: 10000
+  },
+  wechatferry: {
+    enabled: false
+  }
 }

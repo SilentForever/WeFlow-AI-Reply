@@ -1,8 +1,11 @@
 import { create } from 'zustand'
-import type { ServiceStatus, ModelConfig, Skill, TriggerRules, ReplyLog, DailyStats, ContactSkillMapping, ModelInfo, DistillProgress, ModelType } from '../types/ai-reply'
-import { DEFAULT_TRIGGER_RULES } from '../types/ai-reply'
+import type { ServiceStatus, ModelConfig, Skill, TriggerRules, ReplyLog, DailyStats, ContactSkillMapping, ModelInfo, DistillProgress, ModelType, AIReplySenderConfig, SenderHealth, SenderId } from '../types/ai-reply'
+import { DEFAULT_AI_REPLY_SENDER_CONFIG, DEFAULT_TRIGGER_RULES } from '../types/ai-reply'
 
 const api = () => (window.electronAPI?.aiReply as any)
+
+type PrerequisiteCheck = { name: string; passed: boolean; message: string; configKey?: string }
+type PrerequisiteResult = { allPassed: boolean; checks: PrerequisiteCheck[] }
 
 export interface AIReplyState {
   status: ServiceStatus
@@ -30,10 +33,13 @@ export interface AIReplyState {
   autoReplyEnabled: boolean
   sseStatus: 'disconnected' | 'connecting' | 'connected' | 'error'
   sseError: string
-  prerequisiteChecks: { name: string; passed: boolean; message: string; configKey?: string }[] | null
+  prerequisiteChecks: PrerequisiteCheck[] | null
   prerequisitesAllPassed: boolean | null
   processingContacts: { contactId: string; contactName: string; stage: string; startedAt: number }[]
   messageFlow: { contactId: string; contactName: string; stage: string; detail: string; timestamp: number }[]
+  senderConfig: AIReplySenderConfig
+  senderHealth: SenderHealth | null
+  senderHealthLoading: boolean
 
   start: () => Promise<void>
   pause: () => Promise<void>
@@ -78,7 +84,10 @@ export interface AIReplyState {
   setAutoReplyEnabled: (enabled: boolean) => Promise<void>
   fetchAutoReplyEnabled: () => Promise<void>
   fetchSSEStatus: () => Promise<void>
-  checkPrerequisites: () => Promise<void>
+  checkPrerequisites: () => Promise<PrerequisiteResult | null>
+  fetchSenderConfig: () => Promise<void>
+  setSenderConfig: (config: Partial<AIReplySenderConfig>) => Promise<void>
+  fetchSenderHealth: (senderId?: SenderId) => Promise<void>
   clearTestReply: () => void
   clearError: () => void
   setError: (error: string) => void
@@ -114,15 +123,25 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
   prerequisitesAllPassed: null,
   processingContacts: [],
   messageFlow: [],
+  senderConfig: DEFAULT_AI_REPLY_SENDER_CONFIG,
+  senderHealth: null,
+  senderHealthLoading: false,
 
   start: async () => {
     set({ isLoading: true, error: null })
     try {
       const result = await api()?.start()
+      if (result?.checks) {
+        set({
+          prerequisiteChecks: result.checks,
+          prerequisitesAllPassed: result.checks.every((check: PrerequisiteCheck) => check.passed)
+        })
+      }
       if (!result?.success) throw new Error(result?.error || '启动失败')
       set({ status: 'running', isLoading: false })
     } catch (e: any) {
       set({ error: e.message, isLoading: false })
+      throw e
     }
   },
 
@@ -492,12 +511,58 @@ export const useAIReplyStore = create<AIReplyState>((set, get) => ({
     try {
       const result = await api()?.checkPrerequisites?.()
       if (result) {
+        const normalized = result as PrerequisiteResult
         set({
-          prerequisiteChecks: result.checks,
-          prerequisitesAllPassed: result.allPassed
+          prerequisiteChecks: normalized.checks,
+          prerequisitesAllPassed: normalized.allPassed
         })
+        return normalized
       }
     } catch {}
+    return null
+  },
+
+  fetchSenderConfig: async () => {
+    const config = await api()?.getSenderConfig?.()
+    if (config) {
+      set({ senderConfig: config as AIReplySenderConfig })
+      await get().fetchSenderHealth((config as AIReplySenderConfig).activeSenderId)
+    }
+  },
+
+  setSenderConfig: async (config) => {
+    const current = get().senderConfig
+    const next: AIReplySenderConfig = {
+      ...current,
+      ...config,
+      uiAutomation: {
+        ...current.uiAutomation,
+        ...config.uiAutomation
+      },
+      weclawHttp: {
+        ...current.weclawHttp,
+        ...config.weclawHttp
+      },
+      wechatferry: {
+        ...current.wechatferry,
+        ...config.wechatferry
+      }
+    }
+    const result = await api()?.setSenderConfig?.(next)
+    const saved = (result?.config || next) as AIReplySenderConfig
+    set({ senderConfig: saved })
+    await get().fetchSenderHealth(saved.activeSenderId)
+    await get().checkPrerequisites()
+  },
+
+  fetchSenderHealth: async (senderId) => {
+    set({ senderHealthLoading: true })
+    try {
+      const health = await api()?.getSenderHealth?.(senderId)
+      set({ senderHealth: health || null, senderHealthLoading: false })
+    } catch {
+      set({ senderHealth: null, senderHealthLoading: false })
+    }
   },
 
   clearTestReply: () => {
