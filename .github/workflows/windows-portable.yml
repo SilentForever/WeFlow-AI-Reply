@@ -183,6 +183,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --repo $repo --target $env:GITHUB_SHA --title 'Windows Portable Latest' --notes-file windows-portable-release-notes.md --prerelease
           } else {
+            gh api --method PATCH "repos/$repo/git/refs/tags/$tag" -f sha="$env:GITHUB_SHA" -F force=true
             gh release edit $tag --repo $repo --title 'Windows Portable Latest' --notes-file windows-portable-release-notes.md --prerelease
           }
 
