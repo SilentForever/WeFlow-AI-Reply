@@ -164,12 +164,12 @@ jobs:
           $notes = @"
           ## Windows Portable Latest
 
-          This prerelease is updated automatically from the latest `main` branch build.
+          This prerelease is updated automatically from the latest main branch build.
 
-          - File: `$env:PORTABLE_EXE_NAME`
-          - SHA256: `$env:PORTABLE_SHA256`
-          - Commit: `$env:GITHUB_SHA`
-          - Usage: download the `.exe` asset below and run it directly. No installer is required.
+          - File: $env:PORTABLE_EXE_NAME
+          - SHA256: $env:PORTABLE_SHA256
+          - Commit: $env:GITHUB_SHA
+          - Usage: download the .exe asset below and run it directly. No installer is required.
 
           Notes:
           - The executable is currently unsigned.
