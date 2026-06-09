@@ -45,8 +45,8 @@ jobs:
           npm config set registry https://registry.npmjs.org/
           npm config set replace-registry-host always
           npm ci --ignore-scripts --no-audit --no-fund
-          npx electron-builder install-app-deps
           node scripts/prepare-electron-runtime.cjs
+          node -e "const fs=require('fs');const required=['node_modules/typescript/bin/tsc','node_modules/vite/bin/vite.js','node_modules/electron-builder/cli.js'];for(const p of required){console.log(p,fs.existsSync(p));if(!fs.existsSync(p))process.exit(1)}"
 
       - name: Ensure ffmpeg-static binary
         shell: pwsh
@@ -116,15 +116,15 @@ jobs:
 
       - name: Type check
         shell: pwsh
-        run: npm run typecheck
+        run: node node_modules/typescript/bin/tsc --noEmit
 
       - name: Build renderer and Electron entry
         shell: pwsh
-        run: npx vite build
+        run: node node_modules/vite/bin/vite.js build
 
       - name: Package portable EXE
         shell: pwsh
-        run: npx electron-builder --win portable --x64 --publish never '--config.portable.artifactName=${productName}-${version}-x64-Portable.${ext}'
+        run: node node_modules/electron-builder/cli.js --win portable --x64 --publish never '--config.npmRebuild=false' '--config.portable.artifactName=${productName}-${version}-x64-Portable.${ext}'
 
       - name: Capture portable metadata
         id: portable
